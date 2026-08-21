@@ -1,3 +1,6 @@
 target/
 *.db
 .env
+.terraform/
+*.tfstate
+*.tfstate.backup
