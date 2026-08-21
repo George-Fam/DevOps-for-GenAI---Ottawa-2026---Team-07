@@ -4,3 +4,4 @@ target/
 .terraform/
 *.tfstate
 *.tfstate.backup
+dependency-reduced-pom.xml
