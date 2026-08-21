@@ -1,0 +1,13 @@
+name: "Yami"
+description: "Governed infrastructure release agent - scans Terraform PRs, proposes verified remediations"
+runs:
+  using: "docker"
+  image: "Dockerfile"
+inputs:
+  github-token:
+    description: "Scoped GITHUB_TOKEN, used only to open remediation PRs / escalation comments"
+    required: true
+  aws-region:
+    description: "AWS region for Bedrock"
+    required: false
+    default: "us-east-1"

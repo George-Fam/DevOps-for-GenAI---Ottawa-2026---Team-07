@@ -1,0 +1,11 @@
+# PolicyEngine input. Deterministic gate - no LLM involved in reaching these thresholds.
+block:
+  severities: [CRITICAL]
+
+human_review:
+  severities: [HIGH]
+  # findings whose rule_id appears here always route to human review, regardless of severity
+  rule_ids: []
+
+safe_fix:
+  severities: [MEDIUM, LOW]

@@ -1,0 +1,20 @@
+name: Yami
+
+on:
+  pull_request:
+    paths:
+      - "**.tf"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      # pin to a commit SHA before the hackathon ends - see Definition of Done
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
