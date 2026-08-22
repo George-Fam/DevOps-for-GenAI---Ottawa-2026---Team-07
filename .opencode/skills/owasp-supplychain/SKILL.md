@@ -39,7 +39,7 @@ Skill OWASP Top 10:2025 A03 Software Supply Chain Failures + SLSA pour Yami. Gui
 ## Directives pour le Surgeon
 
 - Remplacer `FROM node:latest` par `FROM node:20.11.0@sha256:...`
-- Remplacer `pip3 install checkov` par `pip3 install checkov==3.2.50` (version pinnée)
+- Remplacer `pip3 install checkov` par `pip3 install checkov==3.3.13` (version pinnée)
 - Ajouter vérification SHA256 après téléchargement de binaires
 - Mettre à jour `pom.xml` dépendances avec versions patchées
 

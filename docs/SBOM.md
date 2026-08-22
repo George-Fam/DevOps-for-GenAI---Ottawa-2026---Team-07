@@ -49,7 +49,7 @@
 
 | Tool | Version | Pin Type | Pin Value | Verification |
 |---|---|---|---|---|
-| Checkov | `3.2.50` | pip version | `checkov==3.2.50` | `checkov --version` |
+| Checkov | `3.3.13` | pip version | `checkov==3.3.13` | `checkov --version` |
 | Terraform | `1.15.8` | Binary URL | `terraform_1.15.8_linux_amd64.zip` | `terraform version` |
 | Actionlint | `1.7.12` | Binary URL | `actionlint_1.7.12_linux_amd64.tar.gz` | `actionlint --version` |
 | Trivy | `0.74.0` | Binary + SHA256 | `sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a` | `trivy --version` |
