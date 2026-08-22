@@ -1,5 +1,8 @@
 # Yami — outstanding work
 
+> Every item below is now tracked as a GitHub issue (#4–#38). Start at the master
+> tracking issue for hackathon submission readiness: #37.
+
 Status snapshot after live-testing all four agents (Judge, Surgeon, Auditor, Publisher)
 against real AWS Bedrock credentials. PR #2 (`feat/investigator` → `main`) is up and its
 automated-review threads are resolved; this doc is about what's left before the pipeline
