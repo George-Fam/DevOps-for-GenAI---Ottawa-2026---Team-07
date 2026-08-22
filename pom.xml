@@ -17,6 +17,14 @@
       <artifactId>hcl4j</artifactId>
       <version>0.9.8</version>
     </dependency>
+    <!-- hcl4j pulls commons-beanutils 1.9.4 transitively (CVE-2025-48734, HIGH) -
+         pin the fixed version explicitly, Maven's dependency mediation prefers the
+         directly-declared version over the transitive one. -->
+    <dependency>
+      <groupId>commons-beanutils</groupId>
+      <artifactId>commons-beanutils</artifactId>
+      <version>1.11.0</version>
+    </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
