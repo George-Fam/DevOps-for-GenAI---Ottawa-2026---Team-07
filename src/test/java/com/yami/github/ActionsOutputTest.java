@@ -19,7 +19,8 @@ class ActionsOutputTest {
         RunResult result = new RunResult(
             tempDir.resolve("audit.json"),
             7,
-            List.of()
+            List.of(),
+            true
         );
 
         ActionsOutput.write(outputFile, result);
@@ -39,7 +40,8 @@ class ActionsOutputTest {
             List.of(
                 "https://github.com/org/repo/pull/101",
                 "https://github.com/org/repo/pull/102"
-            )
+            ),
+            true
         );
 
         ActionsOutput.write(outputFile, result);
@@ -56,7 +58,7 @@ class ActionsOutputTest {
     @Test
     void skipsNullAuditJson(@TempDir Path tempDir) throws Exception {
         Path outputFile = tempDir.resolve("github_output");
-        RunResult result = new RunResult(null, 0, List.of());
+        RunResult result = new RunResult(null, 0, List.of(), true);
 
         ActionsOutput.write(outputFile, result);
 
@@ -70,7 +72,7 @@ class ActionsOutputTest {
         Path outputFile = tempDir.resolve("github_output");
         Files.writeString(outputFile, "previous=value\n");
 
-        RunResult result = new RunResult(null, 5, List.of());
+        RunResult result = new RunResult(null, 5, List.of(), true);
         ActionsOutput.write(outputFile, result);
 
         String content = Files.readString(outputFile);

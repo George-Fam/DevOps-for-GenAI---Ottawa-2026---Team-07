@@ -26,8 +26,8 @@ public class TrivyAdapter {
     public List<Finding> scan(Path repoRoot, List<String> scanPaths, List<String> excludePaths) {
         List<String> args = buildArgs(repoRoot, excludePaths);
 
-        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         // Fixed argv list built from args.add(...) calls, never a shell string.
+        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         ProcessBuilder pb = new ProcessBuilder(args).redirectErrorStream(false);
 
         Process process;

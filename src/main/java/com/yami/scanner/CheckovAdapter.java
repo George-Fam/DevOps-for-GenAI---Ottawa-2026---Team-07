@@ -58,9 +58,9 @@ public class CheckovAdapter {
         args.add("--quiet");
         args.add("--compact");
 
-        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         // Fixed argv list built from args.add(...) calls, never a shell string - no shell
         // interpretation happens, so no metacharacter injection vector.
+        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         ProcessBuilder pb = new ProcessBuilder(args)
             .redirectErrorStream(false);
 

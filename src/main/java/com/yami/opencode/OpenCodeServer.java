@@ -72,9 +72,9 @@ public class OpenCodeServer {
                 throw new IllegalStateException("'opencode serve' exited before becoming ready (exit="
                     + process.exitValue() + ") - see " + logFile);
             }
-            // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
             // Loopback readiness probe only - connects, sends zero bytes, closes
             // immediately. There's no data channel to encrypt here.
+            // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
             try (Socket socket = new Socket()) {
                 socket.connect(new InetSocketAddress(hostname, port), 500);
                 return; // accepting connections

@@ -9,6 +9,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Implémentation GitHub via git CLI et gh CLI. Token scopé, jamais merge.
@@ -98,20 +100,26 @@ public class GithubAdapter {
         run("gh", "pr", "comment", prNumber, "--body", body);
     }
 
+    // pull_request-triggered runs set GITHUB_REF_NAME to "<pr_number>/merge",
+    // not a bare number — match a leading digit run so escalation comments
+    // actually post on the trigger this action is built for.
+    private static final Pattern PR_NUMBER = Pattern.compile("^(\\d+)");
+
     public void escalateToHumanReview(String reason) {
         KillSwitch.checkNotDisabled("post escalation comment");
-        String prNumber = System.getenv("GITHUB_REF_NAME");
-        if (prNumber != null && prNumber.matches("\\d+")) {
-            postComment(prNumber, "## Yami Escalation :eyes:\n\n" + reason
+        String refName = System.getenv("GITHUB_REF_NAME");
+        Matcher matcher = refName == null ? null : PR_NUMBER.matcher(refName);
+        if (matcher != null && matcher.find()) {
+            postComment(matcher.group(1), "## Yami Escalation :eyes:\n\n" + reason
                 + "\n\n*This finding requires human review — Yami will not auto-remediate.*");
         }
     }
 
     private void run(String... command) {
         try {
-            // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
             // Fixed argv array, never a shell string - no shell interpretation happens, so
             // there's no metacharacter injection vector regardless of argument content.
+            // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
             ProcessBuilder pb = new ProcessBuilder(command)
                 .directory(repoDir.toFile())
                 .redirectErrorStream(true);
@@ -134,8 +142,8 @@ public class GithubAdapter {
 
     private String runWithOutput(String... command) {
         try {
-            // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
             // Fixed argv array, never a shell string - see run() above.
+            // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
             ProcessBuilder pb = new ProcessBuilder(command)
                 .directory(repoDir.toFile())
                 .redirectErrorStream(true);

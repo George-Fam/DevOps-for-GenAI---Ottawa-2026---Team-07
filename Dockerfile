@@ -30,6 +30,24 @@ RUN curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.18.21/
     && rm /tmp/opencode.tar.gz \
     && opencode --version
 
+# gh CLI — pinned binary; GithubAdapter (postComment/openPr/createBranch/
+# commitChanges) shells out to `gh`, which this image never installed.
+# SHA256 verified against GitHub release v2.98.0
+RUN curl -fsSL https://github.com/cli/cli/releases/download/v2.98.0/gh_2.98.0_linux_amd64.tar.gz -o /tmp/gh.tar.gz \
+    && echo '3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de  /tmp/gh.tar.gz' | sha256sum -c \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && mv /tmp/gh_2.98.0_linux_amd64/bin/gh /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tar.gz /tmp/gh_2.98.0_linux_amd64 \
+    && gh --version
+
+# GitHub Actions mounts GITHUB_WORKSPACE from the runner host, owned by the
+# runner's user, while this container always runs as root (see note below) -
+# git's dubious-ownership check then refuses every git operation in that
+# directory (both GithubAdapter's own git calls and gh's internal ones).
+# --system (not --global) so it survives runtime HOME being passed through
+# from the host and overriding whatever --global would have written.
+RUN git config --system --add safe.directory /github/workspace
+
 RUN apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY target/yami.jar /yami.jar

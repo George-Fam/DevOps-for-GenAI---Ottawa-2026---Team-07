@@ -64,6 +64,8 @@ class HclBlockReplacerSpikeTest {
     }
 
     private static int run(Path dir, String... command) throws IOException, InterruptedException {
+        // Fixed argv array, never a shell string - see ActionlintYamlStrategy/TerraformStrategy.
+        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         Process p = new ProcessBuilder(command)
             .directory(dir.toFile())
             .redirectErrorStream(true)

@@ -52,6 +52,10 @@ public class Main {
         if (ghOutput != null && !ghOutput.isBlank()) {
             ActionsOutput.write(Path.of(ghOutput), result);
         }
+
+        if (!result.success()) {
+            System.exit(1);
+        }
     }
 
     /** YAMI_SCOPE is a comma-separated glob list (action input {@code scope}). */

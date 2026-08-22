@@ -80,8 +80,8 @@ public class ActionlintYamlStrategy implements VerificationStrategy {
 
     private static int run(Path dir, String... command) {
         try {
-            // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
             // Fixed argv array, never a shell string.
+            // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
             Process p = new ProcessBuilder(command)
                 .directory(dir.toFile())
                 .redirectErrorStream(true)

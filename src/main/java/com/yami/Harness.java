@@ -129,10 +129,17 @@ public class Harness {
         this.sessionExporter = new SessionExporter(auditDir);
     }
 
+    /**
+     * @return the run's result, including {@code success = false} whenever
+     *         the pipeline must fail the gate closed. Callers must fail the
+     *         process (non-zero exit) on {@code !success} — this is a
+     *         security gate, so a systemic failure (bad credentials, killed
+     *         run, governance mismatch) must never look like a passing check.
+     */
     public RunResult run() {
         if (KillSwitch.isDisabled()) {
             System.err.println("[Harness] YAMI_DISABLED=true — aborting run");
-            return new RunResult(null, 0, List.of());
+            return new RunResult(null, 0, List.of(), false);
         }
 
         System.out.println("[Harness] Starting Yami pipeline");
@@ -143,7 +150,7 @@ public class Harness {
             System.err.println("[Harness] GOVERNANCE INTEGRITY FAILED: " + govResult.details());
             KillSwitch.trigger("governance manifest mismatch: " + govResult.details());
             githubAdapter.escalateToHumanReview("Yami governance integrity check failed — .opencode/ artefacts do not match the committed manifest. Human review required.");
-            return new RunResult(null, 0, List.of());
+            return new RunResult(null, 0, List.of(), false);
         }
         System.out.println("[Harness] Governance integrity verified");
 
@@ -177,10 +184,12 @@ public class Harness {
             RiskContextPacket packet = investigator.buildPacket(repoDir, terraformDir, findings, changedFiles, beforeAfter, policyVersion);
 
             // Process each finding
+            int failureCount = 0;
             for (Finding finding : findings) {
                 if (KillSwitch.isDisabled()) {
                     System.err.println("[Harness] Kill switch triggered mid-run — escalating remaining findings without further agent calls");
                     githubAdapter.escalateToHumanReview("Yami pipeline halted (kill switch triggered) before processing " + finding.ruleId() + ". Human review required.");
+                    failureCount++;
                     continue;
                 }
                 try {
@@ -188,6 +197,7 @@ public class Harness {
                 } catch (Exception e) {
                     System.err.println("[Harness] Error processing finding " + finding.ruleId() + ": " + e.getMessage());
                     githubAdapter.escalateToHumanReview("Error processing finding " + finding.ruleId() + ": " + e.getMessage());
+                    failureCount++;
                 }
             }
 
@@ -195,13 +205,15 @@ public class Harness {
             String govManifestHash = hashFile(repoDir.resolve(".opencode/MANIFEST.json"));
             auditJson = sessionExporter.assembleAuditJson(sessionExports, govManifestHash, packet.packetHash(), verifications);
             System.out.println("[Harness] Pipeline complete — audit trail: " + auditStore + " ; audit.json: " + auditJson);
+            if (failureCount > 0) {
+                System.err.println("[Harness] " + failureCount + "/" + findings.size() + " finding(s) failed processing — failing the gate closed");
+            }
+            return new RunResult(auditJson, findings.size(), List.copyOf(prUrls), failureCount == 0);
         } finally {
             if (!replayMode) {
                 openCodeServer.stop();
             }
         }
-
-        return new RunResult(auditJson, findings.size(), List.copyOf(prUrls));
     }
 
     private List<Finding> scan() {
