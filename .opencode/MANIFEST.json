@@ -1,10 +1,9 @@
 {
   "version" : "1",
-  "generatedAt" : "2026-08-22T05:20:00.116829604Z",
-  "gitCommit" : "1ef223d5435847b028f7eee4f4772b357b60a79b",
-  "previousManifestHash" : "5301a31689afc3bbc21b061e538bfec397b6736de0ea80793e9dcc2e016c096e",
+  "generatedAt" : "2026-08-22T05:20:59.517158943Z",
+  "gitCommit" : "5dbea7dea3e64ff736fa89d7db7666e2405d9075",
+  "previousManifestHash" : "95587b895b20fe017872bcd024fce0be4ea8d52e99404102cf8e538fda28ec79",
   "files" : {
-    ".opencode/FALLBACK.md" : "234309297beb29d8a5eaf50d5b3f6ddeb6637eb877af8fed89ee83b17fcfea9d",
     ".opencode/agents/auditor.md" : "d35a0d0450572d3f96031be3770e99ad1a987efa2cbe119b23819470667f40ad",
     ".opencode/agents/judge.md" : "a627da7b0fff66114c9edca5380b5870a9b456fa5e631cd79679fc141fde6c83",
     ".opencode/agents/publisher.md" : "b317a65e3291edc4712b17b59d1f20ea393202a76f0a7aaaa0a0179460964de5",
