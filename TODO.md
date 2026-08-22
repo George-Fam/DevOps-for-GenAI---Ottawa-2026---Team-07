@@ -91,6 +91,31 @@ posts** — HUMAN_REVIEW/BLOCK/veto/verification-failure paths all silently do n
 Fix: parse the PR number out of `GITHUB_REF_NAME` (split on `/`, take the first segment)
 instead of requiring the whole string to be numeric.
 
+### 1.5 First real CI run confirmed 1.1 empirically, then hit a real Trivy/network issue
+Ran the actual `yami.yml` workflow for real (after fixing the missing `mvn package`
+step - see below). Got real, valuable data:
+- Docker build succeeds, `Harness` starts, governance integrity check passes,
+  **`opencode serve` starts and becomes ready inside the real container** - the neutral-cwd
+  design works mechanically.
+- Scanning reached `TrivyAdapter`, which crashed the whole run:
+  `trivy fs pom.xml` needs live Maven Central access to resolve full dependency
+  metadata, hit `429 Too Many Requests`, and `TrivyAdapter.scan()` correctly detected
+  empty stdout and threw - which then took down the entire pipeline before Judge was
+  ever reached. Root cause: `mvn package` (which was added to the workflow to build
+  `yami.jar`) populates the **host runner's** `~/.m2`, but the action runs in a
+  **separate Docker container** with no access to that cache and no `~/.m2` of its own,
+  so Trivy inside the container always needs a fresh live resolution. Mitigated by
+  making `Harness.scan()` degrade a single scanner's failure to an empty result instead
+  of aborting the run (`scanOrDegrade` in `Harness.java`) - checkov/cicd findings still
+  get through even if Trivy has a bad day. The root cause (container has no Maven
+  cache) is still open: either mount `~/.m2` into the container, bake a warm cache into
+  the image, or find a Trivy flag that avoids live Maven Central resolution for pom.xml
+  scanning.
+- Because of the crash, this run never actually reached Judge - so 1.1 (permission
+  scoping) is still unconfirmed *in the real container topology* specifically (it was
+  confirmed via local `opencode run`/`opencode serve` testing outside the container).
+  Worth re-running once the Trivy issue is fixed to see how far it gets next.
+
 ## 2. Known gaps (lower severity, not blocking a first real run)
 
 - **`{{scoped_dirs}}` / `{{target_file}}` placeholders in `judge.md`/`surgeon.md`

@@ -199,12 +199,30 @@ public class Harness {
 
     private List<Finding> scan() {
         System.out.println("[Harness] Scanning with scope: " + policyConfig.scanPaths());
-        List<Finding> checkovFindings = checkovAdapter.scan(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths());
-        List<Finding> cicdFindings = cicdRules.evaluate(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths());
-        List<Finding> trivyFindings = trivyAdapter.scan(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths());
+        List<Finding> checkovFindings = scanOrDegrade("checkov",
+            () -> checkovAdapter.scan(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths()));
+        List<Finding> cicdFindings = scanOrDegrade("cicd-rules",
+            () -> cicdRules.evaluate(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths()));
+        List<Finding> trivyFindings = scanOrDegrade("trivy",
+            () -> trivyAdapter.scan(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths()));
         return java.util.stream.Stream.of(checkovFindings, cicdFindings, trivyFindings)
             .flatMap(List::stream)
             .toList();
+    }
+
+    /**
+     * A scanner hitting a transient external failure (rate limit, network blip)
+     * shouldn't take down the whole run - the other scanners still have real
+     * findings to report. Logs and degrades to an empty result rather than
+     * letting one scanner's exception abort scanning entirely.
+     */
+    private List<Finding> scanOrDegrade(String scannerName, java.util.function.Supplier<List<Finding>> scan) {
+        try {
+            return scan.get();
+        } catch (RuntimeException e) {
+            System.err.println("[Harness] " + scannerName + " scan failed, continuing without it: " + e.getMessage());
+            return List.of();
+        }
     }
 
     private void processFinding(Finding finding, RiskContextPacket packet) {
