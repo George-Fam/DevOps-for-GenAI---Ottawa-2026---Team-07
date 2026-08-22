@@ -50,7 +50,11 @@ public class CheckovAdapter {
         if (!excludePaths.isEmpty()) {
             for (String p : excludePaths) {
                 args.add("--skip-path");
-                args.add(p);
+                // checkov compiles --skip-path values as Python regexes, but the
+                // policy file expresses them as globs - "**" is an invalid regex
+                // ("multiple repeat") and crashes any checkov runner that compiles
+                // exclusions (bicep, terraform_json, secrets, base_runner).
+                args.add(p.replace("**", ".*"));
             }
         }
         args.add("--output");
@@ -117,6 +121,12 @@ public class CheckovAdapter {
         String checkId = check.path("check_id").asText();
         String resourceAddress = check.path("resource").asText();
         String filePath = check.path("file_path").asText();
+        // checkov emits file_path with a leading '/' even though it is relative to
+        // the scanned dir (e.g. "/fixtures/safe_fix/main.tf"). Path.resolve() treats
+        // a leading slash as absolute and escapes repoDir - normalize to repo-relative.
+        if (filePath.startsWith("/")) {
+            filePath = filePath.substring(1);
+        }
         JsonNode range = check.path("file_line_range");
         int line = range.isArray() && range.size() > 0 ? range.get(0).asInt() : -1;
         String description = check.path("check_name").asText();
