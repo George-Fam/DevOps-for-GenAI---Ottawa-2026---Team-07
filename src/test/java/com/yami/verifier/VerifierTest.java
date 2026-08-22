@@ -147,6 +147,8 @@ class VerifierTest {
 
     private static boolean hasTool(String tool) {
         try {
+            // Fixed argv, never a shell string - tool name comes from a fixed call site, not user input.
+            // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
             Process p = new ProcessBuilder(tool, "--version").start();
             return p.waitFor() == 0;
         } catch (Exception e) {

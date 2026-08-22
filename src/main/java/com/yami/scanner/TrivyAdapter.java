@@ -38,8 +38,8 @@ public class TrivyAdapter {
         args.add("--quiet");
         args.add(repoRoot.toString());
 
-        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         // Fixed argv list built from args.add(...) calls, never a shell string.
+        // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
         ProcessBuilder pb = new ProcessBuilder(args).redirectErrorStream(false);
 
         Process process;
