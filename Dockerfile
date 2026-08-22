@@ -37,4 +37,12 @@ COPY policies /policies
 COPY .opencode /root/.config/opencode
 RUN ln -s /root/.config/opencode /.opencode
 
+# No USER directive here on purpose: this image runs as a GitHub Actions Docker
+# container action (action.yml), and GitHub's own guidance is that such actions
+# must run as the default root user or GITHUB_WORKSPACE becomes unreadable/
+# unwritable (UID of the mounted workspace won't match an arbitrary container
+# user) - https://docs.github.com/en/actions/reference/workflows-and-actions/dockerfile-support
+# Yami needs write access there for the Surgeon's edits and Publisher's git
+# operations, so this is a deliberate, GitHub-mandated exception, not an
+# oversight.
 ENTRYPOINT ["java", "-jar", "/yami.jar"]

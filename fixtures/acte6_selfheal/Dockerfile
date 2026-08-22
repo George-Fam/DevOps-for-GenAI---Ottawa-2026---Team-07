@@ -21,4 +21,9 @@ RUN apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists
 COPY target/yami.jar /yami.jar
 COPY policies /policies
 
+# This fixture is a scan target only (Acte 6 self-heal demo), never built/run as
+# a live container - but there's no reason to leave it running as root either.
+RUN useradd --create-home --shell /usr/sbin/nologin yami
+USER yami
+
 ENTRYPOINT ["java", "-jar", "/yami.jar"]
