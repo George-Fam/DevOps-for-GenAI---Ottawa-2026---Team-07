@@ -45,4 +45,5 @@ RUN ln -s /root/.config/opencode /.opencode
 # Yami needs write access there for the Surgeon's edits and Publisher's git
 # operations, so this is a deliberate, GitHub-mandated exception, not an
 # oversight.
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
 ENTRYPOINT ["java", "-jar", "/yami.jar"]
