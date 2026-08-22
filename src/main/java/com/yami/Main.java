@@ -43,7 +43,10 @@ public class Main {
         Path replayFile = repoDir.resolve(replayFileEnv);
 
         Harness harness = new Harness(repoDir, policyPath, token, auditDb, replayMode, replayFile, scopeOverride);
-        harness.run();
+        boolean success = harness.run();
+        if (!success) {
+            System.exit(1);
+        }
     }
 
     /** YAMI_SCOPE is a comma-separated glob list (action input {@code scope}). */
