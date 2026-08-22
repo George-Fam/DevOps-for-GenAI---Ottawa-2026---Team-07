@@ -26,6 +26,19 @@ jobs:
           # `origin/<base>` exists locally - Harness needs it to compute
           # changedFiles()/diffsFor() for the risk context packet.
           fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@b36c23c0d998641eff861008f374ee103c25ac73 # v4.4.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # The action's Dockerfile does `COPY target/yami.jar` - it expects the jar
+      # already built, it doesn't build it itself.
+      - name: Build yami.jar
+        run: make package
+
       - uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
