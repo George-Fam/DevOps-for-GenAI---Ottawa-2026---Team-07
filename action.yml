@@ -1,19 +1,50 @@
-name: Yami
-description: Governed infrastructure release agent
+name: 'Yami Security Scanner'
+description: 'AI-powered security scanner and remediation for IaC, CI/CD, and supply chain'
+author: 'Team 07 — DevOps for GenAI Ottawa 2026'
+branding:
+  icon: shield
+  color: red
 
 inputs:
-  policy:
+  github-token:
+    description: 'GitHub token for PR creation and comments'
     required: true
-  mode:
-    required: true
-    default: live
+  policy-file:
+    description: 'Path to the Yami policy YAML file'
+    required: false
+    default: 'policies/yami.yml'
+  audit-db:
+    description: 'Path to the SQLite audit database'
+    required: false
+    default: 'yami-audit.db'
+  scope:
+    description: 'Comma-separated list of scan paths (overrides policy)'
+    required: false
+    default: ''
+  replay-mode:
+    description: 'Enable replay mode for testing (true/false)'
+    required: false
+    default: 'false'
+  replay-file:
+    description: 'Path to the replay JSONL file (for replay mode)'
+    required: false
+    default: 'replay.jsonl'
 
 outputs:
-  decision:
-    description: SAFE_FIX, HUMAN_REVIEW or BLOCK
-  risk-score:
-    description: Calculated risk score
+  audit-json:
+    description: 'Path to the generated audit.json file'
+  findings-count:
+    description: 'Number of findings detected'
+  pr-url:
+    description: 'URL of the remediation PR (if any)'
 
 runs:
-  using: docker
-  image: Dockerfile
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    GITHUB_TOKEN: ${{ inputs.github-token }}
+    YAMI_POLICY_FILE: ${{ inputs.policy-file }}
+    YAMI_AUDIT_DB: ${{ inputs.audit-db }}
+    YAMI_SCOPE: ${{ inputs.scope }}
+    YAMI_REPLAY_MODE: ${{ inputs.replay-mode }}
+    YAMI_REPLAY_FILE: ${{ inputs.replay-file }}

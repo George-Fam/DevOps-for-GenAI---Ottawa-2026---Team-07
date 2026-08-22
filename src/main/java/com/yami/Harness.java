@@ -14,6 +14,7 @@ import com.yami.investigator.Investigator;
 import com.yami.opencode.OpenCodeClient;
 import com.yami.opencode.PermissionInjector;
 import com.yami.opencode.SkillRouter;
+import com.yami.policy.PolicyConfig;
 import com.yami.policy.PolicyEngine;
 import com.yami.scanner.CheckovAdapter;
 import com.yami.scanner.CicdRules;
@@ -55,6 +56,7 @@ public class Harness {
     private final SkillRouter skillRouter;
     private final TokenBudget tokenBudget;
     private final PolicyEngine policyEngine;
+    private final PolicyConfig policyConfig;
     private final CheckovAdapter checkovAdapter;
     private final CicdRules cicdRules;
     private final Investigator investigator;
@@ -72,6 +74,7 @@ public class Harness {
         this.skillRouter = new SkillRouter();
         this.tokenBudget = new TokenBudget(1_000_000); // hard cap configurable
         this.policyEngine = new PolicyEngine();
+        this.policyConfig = new PolicyConfig(policyFile);
         this.checkovAdapter = new CheckovAdapter();
         this.cicdRules = new CicdRules();
         this.investigator = new Investigator();
@@ -129,8 +132,9 @@ public class Harness {
     }
 
     private List<Finding> scan() {
-        List<Finding> checkovFindings = checkovAdapter.scan(repoDir);
-        List<Finding> cicdFindings = cicdRules.evaluate(repoDir);
+        System.out.println("[Harness] Scanning with scope: " + policyConfig.scanPaths());
+        List<Finding> checkovFindings = checkovAdapter.scan(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths());
+        List<Finding> cicdFindings = cicdRules.evaluate(repoDir, policyConfig.scanPaths(), policyConfig.excludePaths());
         // TODO: add Trivy scan for supply chain
         return java.util.stream.Stream.concat(checkovFindings.stream(), cicdFindings.stream()).toList();
     }

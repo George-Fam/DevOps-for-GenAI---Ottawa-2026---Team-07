@@ -33,8 +33,32 @@ public class CheckovAdapter {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public List<Finding> scan(Path terraformDir) {
-        ProcessBuilder pb = new ProcessBuilder(
-            "checkov", "-d", terraformDir.toString(), "--output", "json", "--quiet", "--compact")
+        return scan(terraformDir, List.of(), List.of());
+    }
+
+    public List<Finding> scan(Path terraformDir, List<String> scanPaths, List<String> excludePaths) {
+        List<String> args = new ArrayList<>();
+        args.add("checkov");
+        args.add("-d");
+        args.add(terraformDir.toString());
+        if (!scanPaths.isEmpty()) {
+            for (String p : scanPaths) {
+                args.add("--file");
+                args.add(p);
+            }
+        }
+        if (!excludePaths.isEmpty()) {
+            for (String p : excludePaths) {
+                args.add("--skip-path");
+                args.add(p);
+            }
+        }
+        args.add("--output");
+        args.add("json");
+        args.add("--quiet");
+        args.add("--compact");
+
+        ProcessBuilder pb = new ProcessBuilder(args)
             .redirectErrorStream(false);
 
         Process process;

@@ -35,8 +35,21 @@ public class CicdRules {
     private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
 
     public List<Finding> evaluate(Path repoRoot) {
-        List<Finding> findings = new ArrayList<>(evaluateTerraform(parseAll(repoRoot)));
-        findings.addAll(checkWorkflowFiles(repoRoot));
+        return evaluate(repoRoot, List.of(), List.of());
+    }
+
+    public List<Finding> evaluate(Path repoRoot, List<String> scanPaths, List<String> excludePaths) {
+        List<Finding> findings = new ArrayList<>();
+
+        boolean scanTerraform = scanPaths.isEmpty() || scanPaths.stream().anyMatch(p -> p.endsWith(".tf"));
+        boolean scanWorkflows = scanPaths.isEmpty() || scanPaths.stream().anyMatch(p -> p.contains(".github/workflows"));
+
+        if (scanTerraform) {
+            findings.addAll(evaluateTerraform(parseAll(repoRoot, excludePaths)));
+        }
+        if (scanWorkflows) {
+            findings.addAll(checkWorkflowFiles(repoRoot, excludePaths));
+        }
         return findings;
     }
 
@@ -110,7 +123,7 @@ public class CicdRules {
      * referenced anywhere in the workflow. Together, a forked PR's code runs with the base
      * repo's secrets and write permissions.
      */
-    private List<Finding> checkWorkflowFiles(Path repoRoot) {
+    private List<Finding> checkWorkflowFiles(Path repoRoot, List<String> excludePaths) {
         Path workflowsDir = repoRoot.resolve(".github").resolve("workflows");
         if (!Files.isDirectory(workflowsDir)) {
             return List.of();
@@ -119,6 +132,7 @@ public class CicdRules {
         List<Path> files;
         try (Stream<Path> paths = Files.list(workflowsDir)) {
             files = paths.filter(p -> p.toString().endsWith(".yml") || p.toString().endsWith(".yaml"))
+                .filter(p -> excludePaths.stream().noneMatch(ex -> p.toString().matches(globToRegex(ex))))
                 .sorted().collect(Collectors.toList());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -191,13 +205,15 @@ public class CicdRules {
         return INTERPOLATION_MARKERS.stream().noneMatch(s::contains);
     }
 
-    private Map<String, Object> parseAll(Path terraformDir) {
+    private Map<String, Object> parseAll(Path terraformDir, List<String> excludePaths) {
         Map<String, Object> mergedResources = new LinkedHashMap<>();
         Map<String, Object> mergedTerraform = new LinkedHashMap<>();
 
         List<Path> tfFiles;
         try (Stream<Path> paths = Files.list(terraformDir)) {
-            tfFiles = paths.filter(p -> p.toString().endsWith(".tf")).sorted().collect(Collectors.toList());
+            tfFiles = paths.filter(p -> p.toString().endsWith(".tf"))
+                .filter(p -> excludePaths.stream().noneMatch(ex -> p.toString().matches(globToRegex(ex))))
+                .sorted().collect(Collectors.toList());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -235,5 +251,13 @@ public class CicdRules {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> asMap(Object o) {
         return o instanceof Map ? (Map<String, Object>) o : Map.of();
+    }
+
+    private static String globToRegex(String glob) {
+        String regex = glob.replace(".", "\\.")
+            .replace("**", ".*")
+            .replace("*", "[^/]*")
+            .replace("?", ".");
+        return regex;
     }
 }

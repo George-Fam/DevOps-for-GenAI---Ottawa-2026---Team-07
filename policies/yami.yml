@@ -1,4 +1,13 @@
 version: v4
+scope:
+  scan_paths:
+    - "**/*.tf"
+    - ".github/workflows/**"
+    - "Dockerfile"
+    - "pom.xml"
+  exclude:
+    - "node_modules/**"
+    - "target/**"
 rules:
   CLOUD-001:
     description: Public/under-protected cloud resource (e.g. S3 bucket missing versioning, encryption, or access controls)

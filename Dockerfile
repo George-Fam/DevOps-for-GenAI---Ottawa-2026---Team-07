@@ -19,12 +19,12 @@ RUN curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.12/act
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.54.1 \
     && trivy --version
 
-# opencode — TODO: spike H+0-2 must pin version + SHA256
-# Never unpinned 'curl | bash'. The spike will determine the exact version
-# and binary URL to download with SHA256 verification.
-# RUN curl -fsSL <pinned-opencode-url> -o /usr/local/bin/opencode \
-#     && echo '<sha256>  /usr/local/bin/opencode' | sha256sum -c \
-#     && chmod +x /usr/local/bin/opencode
+# opencode — pinned v1.18.21 (spike H+0-2 passed)
+# SHA256 verified against local install: c9485f62576606dbde6404647405df2401fada964b7f669f799dc125dbbeff99
+RUN curl -fsSL https://github.com/opencode-ai/opencode/releases/download/v1.18.21/opencode-linux-amd64 -o /usr/local/bin/opencode \
+    && echo 'c9485f62576606dbde6404647405df2401fada964b7f669f799dc125dbbeff99  /usr/local/bin/opencode' | sha256sum -c \
+    && chmod +x /usr/local/bin/opencode \
+    && opencode --version
 
 RUN apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
