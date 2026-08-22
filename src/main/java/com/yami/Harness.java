@@ -17,8 +17,11 @@ import com.yami.opencode.SkillRouter;
 import com.yami.policy.PolicyEngine;
 import com.yami.scanner.CheckovAdapter;
 import com.yami.scanner.CicdRules;
+import com.yami.verifier.ActionlintYamlStrategy;
 import com.yami.verifier.DeviationDiff;
 import com.yami.verifier.HclBlockReplacer;
+import com.yami.verifier.TerraformStrategy;
+import com.yami.verifier.TrivyStrategy;
 import com.yami.verifier.Verifier;
 
 import java.nio.file.Path;
@@ -72,7 +75,11 @@ public class Harness {
         this.checkovAdapter = new CheckovAdapter();
         this.cicdRules = new CicdRules();
         this.investigator = new Investigator();
-        this.verifier = new Verifier(new HclBlockReplacer(), checkovAdapter);
+        this.verifier = new Verifier(List.of(
+            new TerraformStrategy(checkovAdapter),
+            new ActionlintYamlStrategy(),
+            new TrivyStrategy()
+        ));
         this.deviationDiff = new DeviationDiff();
         this.githubAdapter = new GithubAdapter(repoDir, githubToken);
         this.auditStore = new AuditStore(auditDb);
@@ -170,25 +177,20 @@ public class Harness {
         System.out.println("[Harness] Surgeon modified: " + patchReport.filesModified());
 
         // 7. Verify
-        // TODO: multi-strategy verification based on finding.source()
-        // For now, delegate to legacy Verifier for Terraform findings
-        VerificationResult verification = null;
-        if (finding.source() == Finding.FindingSource.CHECKOV) {
-            // Legacy verifier path — to be replaced with multi-strategy
-            // verification = verifier.verify(repoDir, Path.of(finding.file()), ...);
-        }
+        VerificationResult verification = verifier.verify(repoDir, finding, patchReport);
+        System.out.println("[Harness] Verification: " + verification.strategy() + " = " + (verification.passed() ? "PASS" : "FAIL"));
 
         // 8. Deviation diff
         // TODO: compute deviation diff
 
         // 9. Publisher
-        if (verification != null && verification.passed()) {
+        if (verification.passed()) {
             String branch = githubAdapter.createBranch("main");
             githubAdapter.commitChanges(branch, "Yami: fix " + finding.ruleId());
             String prUrl = githubAdapter.openPr(branch, "Yami fix: " + finding.ruleId(), buildPrBody(finding, decision, patchReport));
             System.out.println("[Harness] Opened PR: " + prUrl);
         } else {
-            githubAdapter.escalateToHumanReview("Verification failed or not implemented for " + finding.ruleId());
+            githubAdapter.escalateToHumanReview("Verification failed for " + finding.ruleId() + ": " + verification.strategy() + " " + verification.rescan());
         }
 
         auditStore.record(packet, decision, verification, resolveCommitHash());
