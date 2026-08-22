@@ -1,5 +1,8 @@
 package com.yami;
 
+import com.yami.core.RunResult;
+import com.yami.github.ActionsOutput;
+
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -43,7 +46,12 @@ public class Main {
         Path replayFile = repoDir.resolve(replayFileEnv);
 
         Harness harness = new Harness(repoDir, policyPath, token, auditDb, replayMode, replayFile, scopeOverride);
-        harness.run();
+        RunResult result = harness.run();
+
+        String ghOutput = System.getenv("GITHUB_OUTPUT");
+        if (ghOutput != null && !ghOutput.isBlank()) {
+            ActionsOutput.write(Path.of(ghOutput), result);
+        }
     }
 
     /** YAMI_SCOPE is a comma-separated glob list (action input {@code scope}). */
