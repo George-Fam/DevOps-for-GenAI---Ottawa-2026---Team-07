@@ -15,26 +15,26 @@ RUN curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.12/act
     && actionlint --version
 
 # trivy — pinned binary for supply chain scanning
-# SHA256 verified against GitHub release v0.54.1
-RUN curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.54.1/trivy_0.54.1_Linux-64bit.tar.gz -o /tmp/trivy.tar.gz \
-    && echo 'bbaaf8278b2a9bb49aa848fe23c8bfe19f7db4f5dc7b55a9793357cd78cb5ec5  /tmp/trivy.tar.gz' | sha256sum -c \
+# SHA256 verified against GitHub release v0.74.0
+RUN curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz -o /tmp/trivy.tar.gz \
+    && echo '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a  /tmp/trivy.tar.gz' | sha256sum -c \
     && tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
     && rm /tmp/trivy.tar.gz \
     && trivy --version
 
 # opencode — pinned v1.18.21 (spike H+0-2 passed)
-# SHA256 verified against local install: c9485f62576606dbde6404647405df2401fada964b7f669f799dc125dbbeff99
-RUN curl -fsSL https://github.com/opencode-ai/opencode/releases/download/v1.18.21/opencode-linux-amd64 -o /usr/local/bin/opencode \
-    && echo 'c9485f62576606dbde6404647405df2401fada964b7f669f799dc125dbbeff99  /usr/local/bin/opencode' | sha256sum -c \
-    && chmod +x /usr/local/bin/opencode \
+# SHA256 verified against GitHub release
+RUN curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-linux-x64.tar.gz -o /tmp/opencode.tar.gz \
+    && echo 'd910c3ed7613bb5791a328904615d41cc25b7d3a6b470e3199ab0426a995b38a  /tmp/opencode.tar.gz' | sha256sum -c \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode \
+    && rm /tmp/opencode.tar.gz \
     && opencode --version
 
 RUN apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY target/yami.jar /yami.jar
 COPY policies /policies
-COPY .opencode /opt/yami/.opencode
-
-ENV OPENCODE_CONFIG_DIR=/opt/yami/.opencode
+COPY .opencode /root/.config/opencode
+RUN ln -s /root/.config/opencode /.opencode
 
 ENTRYPOINT ["java", "-jar", "/yami.jar"]

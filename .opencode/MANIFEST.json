@@ -1,8 +1,8 @@
 {
   "version" : "1",
-  "generatedAt" : "2026-08-22T05:20:59.517158943Z",
-  "gitCommit" : "5dbea7dea3e64ff736fa89d7db7666e2405d9075",
-  "previousManifestHash" : "95587b895b20fe017872bcd024fce0be4ea8d52e99404102cf8e538fda28ec79",
+  "generatedAt" : "2026-08-22T07:09:49.998721173Z",
+  "gitCommit" : "c1c7a4d0a9c53e3f98afaf6e18076c75a44da6f1",
+  "previousManifestHash" : "0ca5190c3499784400e5cd140867b40cd108f28c1f17b58ea1a7dabd41237c80",
   "files" : {
     ".opencode/agents/auditor.md" : "d35a0d0450572d3f96031be3770e99ad1a987efa2cbe119b23819470667f40ad",
     ".opencode/agents/judge.md" : "a627da7b0fff66114c9edca5380b5870a9b456fa5e631cd79679fc141fde6c83",
