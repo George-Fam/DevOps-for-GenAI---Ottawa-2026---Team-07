@@ -27,7 +27,7 @@ import java.util.List;
  * 4. opencode export {sessionId} → exporte la session pour l'audit
  *
  * <p>Documentation : https://opencode.ai/docs/server/
- * Fallback : voir docs/OPENCODE_FALLBACK (Solution B : mode primary)
+ * Fallback : voir docs/OPENCODE_FALLBACK.md (Solution B : mode primary)
  */
 public class OpenCodeClient {
 
