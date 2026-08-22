@@ -104,7 +104,7 @@ public class Harness {
         this.policyFile = policyFile;
         this.githubToken = githubToken;
         this.replayMode = replayMode;
-        this.openCodeServer = new OpenCodeServer(OPENCODE_HOST, OPENCODE_PORT);
+        this.openCodeServer = new OpenCodeServer(OPENCODE_HOST, OPENCODE_PORT, repoDir);
         ReplayHttpShim shim = new ReplayHttpShim(replayFile, replayMode);
         System.out.println("[Harness] OpenCode HTTP shim: " + (replayMode ? "REPLAY" : "RECORD") + " (" + replayFile + ")");
         this.openCodeClient = new OpenCodeClient("http://" + OPENCODE_HOST + ":" + OPENCODE_PORT, Duration.ofSeconds(120), shim);
