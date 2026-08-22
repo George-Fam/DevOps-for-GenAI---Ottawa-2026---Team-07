@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jre-jammy@sha256:18b44d504d5e761c5b725f009539c9486c0e3feb3c6606ec79bce75b9dfc556b
+FROM eclipse-temurin:21-jre-jammy@sha256:eebd356ad7358b7094758e5787a6726f332917cfd56feab6457c56dab895cdbf
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip unzip curl git \
