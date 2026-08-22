@@ -21,7 +21,19 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # fetch-depth 0 (not the default shallow depth-1 checkout) so
+          # `origin/<base>` exists locally - Harness needs it to compute
+          # changedFiles()/diffsFor() for the risk context packet.
+          fetch-depth: 0
       - uses: ./
         with:
-          policy: policies/yami.yml
-          mode: live
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          policy-file: policies/yami.yml
+          # Fallback IAM key auth (see action.yml) - switch to OIDC
+          # (permissions: id-token: write + aws-actions/configure-aws-credentials)
+          # once a Bedrock-scoped role is available; these are no-ops (empty) until
+          # the AWS_* secrets are added to the repo.
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1

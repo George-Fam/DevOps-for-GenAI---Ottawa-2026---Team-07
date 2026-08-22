@@ -29,6 +29,22 @@ inputs:
     description: 'Path to the replay JSONL file (for replay mode)'
     required: false
     default: 'replay.jsonl'
+  aws-access-key-id:
+    description: 'AWS IAM access key with bedrock:InvokeModel only, for the amazon-bedrock provider (fallback path — OIDC is preferred, see docs)'
+    required: false
+    default: ''
+  aws-secret-access-key:
+    description: 'AWS IAM secret access key, paired with aws-access-key-id'
+    required: false
+    default: ''
+  aws-session-token:
+    description: 'AWS session token, only needed for temporary/STS credentials'
+    required: false
+    default: ''
+  aws-region:
+    description: 'AWS region for the Bedrock provider (must match .opencode/opencode.json)'
+    required: false
+    default: 'us-east-1'
 
 outputs:
   audit-json:
@@ -48,3 +64,7 @@ runs:
     YAMI_SCOPE: ${{ inputs.scope }}
     YAMI_REPLAY_MODE: ${{ inputs.replay-mode }}
     YAMI_REPLAY_FILE: ${{ inputs.replay-file }}
+    AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+    AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+    AWS_SESSION_TOKEN: ${{ inputs.aws-session-token }}
+    AWS_REGION: ${{ inputs.aws-region }}
