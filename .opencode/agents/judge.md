@@ -3,9 +3,8 @@ description: "Yami Judge — lit le code et les skills OWASP, comprend le contex
 mode: subagent
 temperature: 0.0
 model: amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-permissions:
-  read:
-    - "{{scoped_dirs}}"
+permission:
+  read: allow
   edit: deny
   bash: deny
   webfetch: deny

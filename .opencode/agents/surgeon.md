@@ -3,12 +3,12 @@ description: "Yami Surgeon — lit le fichier cible et les patterns OWASP du ski
 mode: subagent
 temperature: 0.0
 model: amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-permissions:
-  read:
-    - "{{scoped_dirs}}"
-  edit:
-    - "{{target_file}}"
+permission:
+  read: allow
+  edit: allow
   bash: deny
+  webfetch: deny
+  websearch: deny
 ---
 
 # Core Mandate

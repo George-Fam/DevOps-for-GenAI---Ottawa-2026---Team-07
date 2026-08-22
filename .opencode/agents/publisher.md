@@ -3,13 +3,16 @@ description: "Yami Publisher — crée une branche jetable, ouvre la PR, poste d
 mode: subagent
 temperature: 0.0
 model: amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-permissions:
+permission:
+  read: allow
   bash:
     "git *": allow
     "gh pr *": allow
     "gh repo *": allow
     "*": deny
   edit: deny
+  webfetch: deny
+  websearch: deny
 ---
 
 # Core Mandate
