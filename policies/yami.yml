@@ -1,0 +1,20 @@
+version: v4
+scope:
+  scan_paths:
+    - "**/*.tf"
+    - ".github/workflows/**"
+    - "Dockerfile"
+    - "pom.xml"
+  exclude:
+    - "node_modules/**"
+    - "target/**"
+rules:
+  CLOUD-001:
+    description: Public/under-protected cloud resource (e.g. S3 bucket missing versioning, encryption, or access controls)
+    default_decision: HUMAN_REVIEW
+    safe_fix_when:
+      - no_cloudfront_relation
+      - no_public_site_signal
+  CICD-001:
+    description: pull_request_target with untrusted checkout and secrets in scope
+    default_decision: BLOCK

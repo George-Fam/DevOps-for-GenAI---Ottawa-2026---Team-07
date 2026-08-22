@@ -1,0 +1,10 @@
+target/
+*.db
+.env
+.terraform/
+*.tfstate
+*.tfstate.backup
+dependency-reduced-pom.xml
+node_modules/
+.yami-audit/
+replay.jsonl

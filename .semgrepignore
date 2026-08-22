@@ -1,0 +1,6 @@
+# fixtures/ contains deliberately vulnerable demo content (pull_request_target +
+# untrusted checkout, insecure CloudFront TLS, mutable action tags, outdated tool
+# pins) that Yami's own scanners/agents are meant to catch and remediate as part
+# of the Acte 3/4/6 demos. Semgrep flagging them as real findings on every push
+# is noise, not signal - they're the point, not a bug.
+fixtures/

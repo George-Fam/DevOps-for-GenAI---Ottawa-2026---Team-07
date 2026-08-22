@@ -1,0 +1,27 @@
+name: vulnerable
+
+# yami-fixture: block - the CICD-001 demo scenario. pull_request_target runs with the
+# base repo's permissions and secrets even for a forked PR; checking out the PR head ref
+# and then using a secret in the same job hands a forked PR's code the base repo's
+# credentials. This should always resolve to BLOCK - there is no safe_fix_when for
+# CICD-001 in policies/yami.yml.
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR head (untrusted)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Build with a secret in scope
+        run: |
+          echo "Building with deploy key"
+          ./build.sh --token "${{ secrets.DEPLOY_TOKEN }}"
