@@ -39,6 +39,25 @@ jobs:
               - 'pom.xml'
               - '**/*.jar'
 
+      - name: Get current date
+        if: steps.changes.outputs.deps == 'true'
+        id: date
+        run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      # Trivy re-pulls its vulnerability DB from GHCR on every run; on busy
+      # days that hits GHCR's anonymous-pull rate limit (429s). The DB is
+      # only republished a few times a day, so a cache keyed on the date
+      # (with a prefix restore-key) reuses it across runs and only refetches
+      # once daily.
+      - name: Cache Trivy DB
+        if: steps.changes.outputs.deps == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.date.outputs.date }}
+          restore-keys: |
+            trivy-db-
+
       # Gate: fails the job on HIGH/CRITICAL findings only. The SARIF
       # run below still reports every severity (LOW to CRITICAL), so
       # lower-severity findings are never silently ignored.
@@ -151,6 +170,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      # See the sca job's "Cache Trivy DB" step for why this exists.
+      - name: Cache Trivy DB
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.date.outputs.date }}
+          restore-keys: |
+            trivy-db-
 
       - name: Generate SBOM with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
