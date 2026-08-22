@@ -12,6 +12,14 @@ jobs:
   yami:
     runs-on: ubuntu-latest
     steps:
+      # audit-only: logs egress but does not block it (same for every
+      # harden-runner step in this file).
+      # TODO: switch to egress-policy: block with allowed-endpoints list later.
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: ./
         with:
