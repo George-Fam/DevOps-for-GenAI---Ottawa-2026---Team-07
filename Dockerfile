@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jre-jammy
+FROM eclipse-temurin:21-jre-jammy@sha256:18b44d504d5e761c5b725f009539c9486c0e3feb3c6606ec79bce75b9dfc556b
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip unzip curl git \
@@ -15,8 +15,11 @@ RUN curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.12/act
     && actionlint --version
 
 # trivy — pinned binary for supply chain scanning
-# TODO: pin SHA256 after download verification
-RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.54.1 \
+# SHA256 verified against GitHub release v0.54.1
+RUN curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.54.1/trivy_0.54.1_Linux-64bit.tar.gz -o /tmp/trivy.tar.gz \
+    && echo 'bbaaf8278b2a9bb49aa848fe23c8bfe19f7db4f5dc7b55a9793357cd78cb5ec5  /tmp/trivy.tar.gz' | sha256sum -c \
+    && tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
+    && rm /tmp/trivy.tar.gz \
     && trivy --version
 
 # opencode — pinned v1.18.21 (spike H+0-2 passed)
