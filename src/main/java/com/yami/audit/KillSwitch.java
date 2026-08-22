@@ -1,28 +1,35 @@
 package com.yami.audit;
 
-import java.util.function.Function;
-
 /**
- * Global kill switch: when YAMI_DISABLED=true, every write point (GithubAdapter opening a
- * PR or posting an escalation comment) must refuse before touching the repo. Intentionally
- * has no effect on read-only stages (Scanner/Investigator/Judge/Verifier) - the point is
- * to stop *writes*, not the whole pipeline, so audit/diagnostic output still flows.
+ * Extension du KillSwitch pour permettre un déclenchement programmatique
+ * (par exemple depuis TokenBudget).
  */
-public final class KillSwitch {
+public class KillSwitch {
+
+    private static volatile boolean triggered = false;
 
     private KillSwitch() {}
 
     public static boolean isDisabled() {
-        return isDisabled(System::getenv);
+        return isDisabled(System::getenv) || triggered;
     }
 
-    static boolean isDisabled(Function<String, String> env) {
-        return "true".equalsIgnoreCase(env.apply("YAMI_DISABLED"));
+    static boolean isDisabled(java.util.function.Function<String, String> env) {
+        return "true".equalsIgnoreCase(env.apply("YAMI_DISABLED")) || triggered;
     }
 
     public static void checkNotDisabled(String action) {
         if (isDisabled()) {
-            throw new IllegalStateException("YAMI_DISABLED=true - refusing to " + action);
+            throw new IllegalStateException("YAMI_DISABLED=true (or triggered) - refusing to " + action);
         }
+    }
+
+    public static void trigger(String reason) {
+        triggered = true;
+        System.err.println("[KillSwitch] TRIGGERED: " + reason);
+    }
+
+    public static void reset() {
+        triggered = false;
     }
 }

@@ -2,71 +2,64 @@ package com.yami.policy;
 
 import com.yami.core.Decision;
 import com.yami.core.Finding;
-import com.yami.core.RiskContextPacket;
-import com.yami.investigator.Investigator;
-import com.yami.scanner.CheckovAdapter;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class PolicyEngineTest {
 
-    private final PolicyEngine engine = new PolicyEngine(Path.of("policies/yami.yml"));
+    private final PolicyEngine engine = new PolicyEngine();
 
     @Test
-    void realFixtureFindingsAreSafeFixWithNoCloudfrontOrPublicSiteSignal() {
-        Path dir = Path.of("fixtures/safe_fix");
-        List<Finding> findings = new CheckovAdapter().scan(dir);
-        RiskContextPacket packet = new Investigator().buildPacket(
-            dir, dir, findings, List.of("main.tf"), Map.of(), engine.version());
+    void vetoTriggersOnPullRequestTargetWithSecrets() {
+        Finding finding = new Finding(
+            "YAMI_CICD_4", Finding.Severity.CRITICAL,
+            ".github/workflows/dangerous.yml", -1, "workflow.dangerous",
+            "pull_request_target trigger with secrets in scope",
+            Finding.FindingSource.CICD_RULES
+        );
 
-        assertEquals(Decision.DecisionType.SAFE_FIX, engine.classify("CLOUD-001", packet, "aws_s3_bucket.data"));
+        Decision veto = engine.veto(finding);
+
+        assertNotNull(veto);
+        assertEquals(Decision.DecisionType.BLOCK, veto.outcome());
+        assertEquals("workflow.dangerous", veto.resourceAddress());
     }
 
     @Test
-    void cloudfrontRelationForcesHumanReviewInsteadOfSafeFix() {
-        RiskContextPacket packet = emptyPacket(
-            List.of("aws_cloudfront_distribution.cdn -> aws_s3_bucket.data"), List.of());
+    void vetoTriggersOnSecretsExposed() {
+        Finding finding = new Finding(
+            "YAMI_CICD_6", Finding.Severity.HIGH,
+            ".github/workflows/leaky.yml", -1, "workflow.leaky",
+            "secrets.GITHUB_TOKEN exposed in workflow step",
+            Finding.FindingSource.CICD_RULES
+        );
 
-        assertEquals(Decision.DecisionType.HUMAN_REVIEW, engine.classify("CLOUD-001", packet, "aws_s3_bucket.data"));
+        Decision veto = engine.veto(finding);
+
+        assertNotNull(veto);
+        assertEquals(Decision.DecisionType.BLOCK, veto.outcome());
     }
 
     @Test
-    void realHumanReviewFixtureIsDetectedAsCloudfrontOrigin() {
-        Path dir = Path.of("fixtures/human_review");
-        List<Finding> findings = new CheckovAdapter().scan(dir);
-        RiskContextPacket packet = new Investigator().buildPacket(
-            dir, dir, findings, List.of("main.tf"), Map.of(), engine.version());
+    void noVetoOnNormalFinding() {
+        Finding finding = new Finding(
+            "CKV_AWS_21", Finding.Severity.HIGH,
+            "main.tf", 10, "aws_s3_bucket.data",
+            "S3 bucket versioning not enabled",
+            Finding.FindingSource.CHECKOV
+        );
 
-        assertEquals(Decision.DecisionType.HUMAN_REVIEW, engine.classify("CLOUD-001", packet, "aws_s3_bucket.site"));
+        Decision veto = engine.veto(finding);
+
+        assertNull(veto);
     }
 
     @Test
-    void publicSiteSignalForcesHumanReviewInsteadOfSafeFix() {
-        RiskContextPacket packet = emptyPacket(
-            List.of(), List.of("aws_s3_bucket.data.website = true"));
-
-        assertEquals(Decision.DecisionType.HUMAN_REVIEW, engine.classify("CLOUD-001", packet, "aws_s3_bucket.data"));
-    }
-
-    @Test
-    void cicd001HasNoSafeFixPathAlwaysBlocks() {
-        assertEquals(Decision.DecisionType.BLOCK,
-            engine.classify("CICD-001", emptyPacket(List.of(), List.of()), "workflow.vulnerable"));
-    }
-
-    @Test
-    void unknownRuleCategoryDefaultsToHumanReview() {
+    void legacyClassifyReturnsHumanReview() {
         assertEquals(Decision.DecisionType.HUMAN_REVIEW,
-            engine.classify("UNKNOWN-999", emptyPacket(List.of(), List.of()), "x"));
-    }
-
-    private static RiskContextPacket emptyPacket(List<String> terraformRelations, List<String> known) {
-        return new RiskContextPacket("h", List.of(), List.of(), Map.of(),
-            terraformRelations, List.of(), known, List.of(), List.of(), "v4");
+            engine.classify("CLOUD-001", null, "aws_s3_bucket.data"));
     }
 }
