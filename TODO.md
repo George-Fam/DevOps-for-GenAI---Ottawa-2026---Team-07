@@ -119,6 +119,14 @@ step - see below). Got real, valuable data:
   confirmed via local `opencode run`/`opencode serve` testing outside the container).
   Worth re-running once the Trivy issue is fixed to see how far it gets next.
 
+**FIXED (issue #8)**: `make package` now exports the host's warm `~/.m2/repository`
+into `target/m2-repo/`, the Dockerfile bakes it to `/root/.m2/repository`, and
+`TrivyAdapter` runs trivy with `--offline-scan`. Since `mvn package` always precedes
+the Docker build, the baked cache contains the current PR's dependencies - including
+new ones. Known trade-off: third-party reuse of the action on a repo without a warm
+cache may silently miss dependencies absent from the image's cache (documented in
+`TrivyAdapter.buildArgs` javadoc and `docs/RUNBOOK.md`).
+
 ## 2. Known gaps (lower severity, not blocking a first real run)
 
 - **`{{scoped_dirs}}` / `{{target_file}}` placeholders in `judge.md`/`surgeon.md`
