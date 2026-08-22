@@ -2,7 +2,7 @@ FROM eclipse-temurin:21-jre-jammy@sha256:eebd356ad7358b7094758e5787a6726f332917c
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip unzip curl git \
-    && pip3 install --no-cache-dir checkov==3.2.50 \
+    && pip3 install --no-cache-dir checkov==3.3.13 \
     && curl -fsSL https://releases.hashicorp.com/terraform/1.15.8/terraform_1.15.8_linux_amd64.zip -o /tmp/tf.zip \
     && unzip /tmp/tf.zip -d /usr/local/bin \
     && rm /tmp/tf.zip

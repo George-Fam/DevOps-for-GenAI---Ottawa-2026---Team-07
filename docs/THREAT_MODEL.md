@@ -212,7 +212,7 @@ These scenarios are derived from the Yami architecture and demonstrate how the s
 | Component | Version | Pin Type | Verification |
 |---|---|---|---|
 | Base image | `eclipse-temurin:21-jre-jammy` | SHA256 digest | `sha256:eebd356ad7358b7094758e5787a6726f332917cfd56feab6457c56dab895cdbf` |
-| Checkov | `3.2.50` | pip version | `pip3 install checkov==3.2.50` |
+| Checkov | `3.3.13` | pip version | `pip3 install checkov==3.3.13` |
 | Terraform | `1.15.8` | Binary URL | `terraform_1.15.8_linux_amd64.zip` |
 | Actionlint | `1.7.12` | Binary URL | **TODO: pin SHA256** |
 | Trivy | `0.74.0` | Binary + SHA256 | `sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a` |
