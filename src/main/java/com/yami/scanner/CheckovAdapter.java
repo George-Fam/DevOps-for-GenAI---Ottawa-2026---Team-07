@@ -6,10 +6,14 @@ import com.yami.core.Finding;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * Runs checkov as a subprocess and normalizes its JSON output into {@link Finding}
@@ -39,15 +43,15 @@ public class CheckovAdapter {
     public List<Finding> scan(Path terraformDir, List<String> scanPaths, List<String> excludePaths) {
         List<String> args = new ArrayList<>();
         args.add("checkov");
-        args.add("-d");
-        args.add(terraformDir.toString());
-        if (!scanPaths.isEmpty()) {
-            for (String p : scanPaths) {
-                args.add("--file");
-                args.add(p);
-            }
-        }
-        if (!excludePaths.isEmpty()) {
+
+        // -d/--directory and -f/--file are mutually exclusive in checkov, and --file
+        // takes literal file paths, not glob patterns - passing both (as this used to)
+        // makes checkov log "could not process file" for each --file entry and silently
+        // fall back to scanning the whole -d tree, ignoring scanPaths entirely. Resolve
+        // the globs to actual files ourselves and drive checkov with -f only.
+        if (scanPaths.isEmpty()) {
+            args.add("-d");
+            args.add(terraformDir.toString());
             for (String p : excludePaths) {
                 args.add("--skip-path");
                 // checkov compiles --skip-path values as Python regexes, but the
@@ -55,6 +59,15 @@ public class CheckovAdapter {
                 // ("multiple repeat") and crashes any checkov runner that compiles
                 // exclusions (bicep, terraform_json, secrets, base_runner).
                 args.add(p.replace("**", ".*"));
+            }
+        } else {
+            List<Path> files = resolveScanFiles(terraformDir, scanPaths, excludePaths);
+            if (files.isEmpty()) {
+                return List.of();
+            }
+            for (Path f : files) {
+                args.add("--file");
+                args.add(f.toString());
             }
         }
         args.add("--output");
@@ -111,6 +124,27 @@ public class CheckovAdapter {
         return findings;
     }
 
+    /** Expands scanPaths/excludePaths glob patterns (repo-root-relative) against the
+     * files actually under terraformDir, since checkov's --file takes literal paths. */
+    private static List<Path> resolveScanFiles(Path terraformDir, List<String> scanPaths, List<String> excludePaths) {
+        List<PathMatcher> includes = scanPaths.stream()
+            .map(p -> FileSystems.getDefault().<PathMatcher>getPathMatcher("glob:" + p))
+            .toList();
+        List<PathMatcher> excludes = excludePaths.stream()
+            .map(p -> FileSystems.getDefault().<PathMatcher>getPathMatcher("glob:" + p))
+            .toList();
+        try (Stream<Path> walk = Files.walk(terraformDir)) {
+            return walk
+                .filter(Files::isRegularFile)
+                .filter(p -> includes.stream().anyMatch(m -> m.matches(terraformDir.relativize(p))))
+                .filter(p -> excludes.stream().noneMatch(m -> m.matches(terraformDir.relativize(p))))
+                .sorted()
+                .toList();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     private static Iterable<JsonNode> resultsArray(JsonNode root) {
         // checkov emits a single object when scanning one framework, an array when scanning
         // multiple (e.g. terraform + dockerfile in the same run)
@@ -120,7 +154,14 @@ public class CheckovAdapter {
     private Finding toFinding(JsonNode check) {
         String checkId = check.path("check_id").asText();
         String resourceAddress = check.path("resource").asText();
-        String filePath = check.path("file_path").asText();
+        // file_path is relative to whatever root checkov scanned from - in -f mode that's
+        // each file's own directory (e.g. just "/main.tf", losing the repo-relative
+        // prefix). repo_file_path is always repo-root-relative regardless of -d vs -f,
+        // so prefer it; file_path is only a fallback for older checkov output shapes.
+        JsonNode repoFilePath = check.path("repo_file_path");
+        String filePath = repoFilePath.isMissingNode() || repoFilePath.asText().isBlank()
+            ? check.path("file_path").asText()
+            : repoFilePath.asText();
         // checkov emits file_path with a leading '/' even though it is relative to
         // the scanned dir (e.g. "/fixtures/safe_fix/main.tf"). Path.resolve() treats
         // a leading slash as absolute and escapes repoDir - normalize to repo-relative.
