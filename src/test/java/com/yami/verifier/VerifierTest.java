@@ -1,30 +1,70 @@
 package com.yami.verifier;
 
 import com.yami.core.Finding;
-import com.yami.core.ProposedPatch;
+import com.yami.core.PatchReport;
 import com.yami.core.VerificationResult;
 import com.yami.core.VerificationResult.StepResult;
 import com.yami.scanner.CheckovAdapter;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * End-to-end against the real fixture, real terraform, and real checkov - the whole
- * Verifier contract in one pass: the happy path, and the tech plan §13 "core V4 test"
- * list of patch-rejection scenarios (missing resource, invalid syntax, new critical
- * finding introduced) - the one the product plan calls "the one worth demonstrating live."
+ * End-to-end integration test for the Verifier with TerraformStrategy.
+ * Requires terraform and checkov on PATH; skipped otherwise.
+ *
+ * <p>The new architecture (post-pivot) assumes the Surgeon has already modified
+ * the target file before the Verifier runs. This test simulates that by writing
+ * the patched content directly to the temp fixture directory.
  */
 class VerifierTest {
 
     private static final Path FIXTURE = Path.of("fixtures/safe_fix");
 
-    private static final String GOOD_BLOCK = """
+    private static final String ORIGINAL_MAIN_TF = """
+        terraform {
+          required_providers {
+            aws = {
+              source  = "hashicorp/aws"
+              version = "~> 5.0"
+            }
+          }
+        }
+
+        provider "aws" {
+          region = "us-east-1"
+        }
+
+        resource "aws_s3_bucket" "data" {
+          bucket = "yami-demo-bucket"
+        }
+        """;
+
+    private static final String PATCHED_MAIN_TF = """
+        terraform {
+          required_providers {
+            aws = {
+              source  = "hashicorp/aws"
+              version = "~> 5.0"
+            }
+          }
+        }
+
+        provider "aws" {
+          region = "us-east-1"
+        }
+
         resource "aws_s3_bucket" "data" {
           bucket = "yami-demo-bucket"
         }
@@ -43,14 +83,28 @@ class VerifierTest {
               sse_algorithm = "aws:kms"
             }
           }
-        }""";
+        }
+        """;
 
-    private static final String SYNTACTICALLY_INVALID_BLOCK = """
+    private static final String BROKEN_MAIN_TF = """
         resource "aws_s3_bucket" "data" {
           bucket = "yami-demo-bucket"
-        """; // missing closing brace - fmt should reject this outright
+        """; // missing closing brace
 
-    private static final String INTRODUCES_NEW_CRITICAL_FINDING_BLOCK = """
+    private static final String POLICY_MAIN_TF = """
+        terraform {
+          required_providers {
+            aws = {
+              source  = "hashicorp/aws"
+              version = "~> 5.0"
+            }
+          }
+        }
+
+        provider "aws" {
+          region = "us-east-1"
+        }
+
         resource "aws_s3_bucket" "data" {
           bucket = "yami-demo-bucket"
         }
@@ -82,67 +136,91 @@ class VerifierTest {
               Resource  = "${aws_s3_bucket.data.arn}/*"
             }]
           })
-        }""";
+        }
+        """;
 
-    private final Verifier verifier = new Verifier(new HclBlockReplacer(), new CheckovAdapter());
+    @BeforeAll
+    static void checkTools() {
+        assumeTrue(hasTool("terraform"), "terraform not on PATH — skipping integration test");
+        assumeTrue(hasTool("checkov"), "checkov not on PATH — skipping integration test");
+    }
+
+    private static boolean hasTool(String tool) {
+        try {
+            Process p = new ProcessBuilder(tool, "--version").start();
+            return p.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private Verifier createVerifier() {
+        return new Verifier(List.of(new TerraformStrategy(new CheckovAdapter())));
+    }
 
     @Test
-    void goodPatchPassesAndReducesFindings() {
-        // scoped to what GOOD_BLOCK actually fixes (versioning + encryption) - the fixture's
-        // other findings on this resource (logging, replication, lifecycle, notifications)
-        // are real and untouched by this patch, so they must not be part of "the original
-        // finding" this particular decision is checked against
-        List<Finding> originalFindings = new CheckovAdapter().scan(FIXTURE).stream()
-            .filter(f -> f.ruleId().equals("CKV_AWS_21") || f.ruleId().equals("CKV_AWS_145"))
-            .toList();
-        ProposedPatch patch = new ProposedPatch("aws_s3_bucket.data", GOOD_BLOCK, "adds versioning + KMS encryption");
+    void goodPatchPassesAndReducesFindings(@TempDir Path tempDir) throws IOException {
+        // Simulate the Surgeon's work: write the patched file
+        Path targetFile = tempDir.resolve("main.tf");
+        Files.writeString(targetFile, PATCHED_MAIN_TF);
 
-        VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, originalFindings);
+        Finding finding = new Finding("CKV_AWS_21", Finding.Severity.HIGH, "main.tf", 1,
+            "aws_s3_bucket.data", "Ensure S3 bucket has versioning enabled", Finding.FindingSource.CHECKOV);
+        PatchReport patchReport = new PatchReport(List.of("main.tf"), "adds versioning + KMS encryption",
+            List.of("ISR03"), List.of());
+
+        Verifier verifier = createVerifier();
+        VerificationResult result = verifier.verify(tempDir, finding, patchReport);
 
         assertTrue(result.passed(), () -> "expected pass, got fmt=" + result.format()
-            + " validate=" + result.validate() + " rescan=" + result.rescan());
+            + " init=" + result.init() + " validate=" + result.validate() + " rescan=" + result.rescan());
         assertEquals(StepResult.PASS, result.format());
+        assertEquals(StepResult.PASS, result.init());
         assertEquals(StepResult.PASS, result.validate());
         assertEquals(StepResult.PASS, result.rescan());
-        assertTrue(result.newFindings().isEmpty());
+        assertTrue(result.originalFindingsResolved(), "the original finding should be resolved");
+        assertFalse(result.newCriticalOrHigh(), "no new critical/high finding should be introduced");
     }
 
     @Test
-    void patchForMissingResourceIsRejectedNotThrown() {
-        ProposedPatch patch = new ProposedPatch("aws_s3_bucket.does_not_exist", GOOD_BLOCK, "hallucinated resource");
+    void syntacticallyInvalidBlockFailsFormatAndIsRejected(@TempDir Path tempDir) throws IOException {
+        Path targetFile = tempDir.resolve("main.tf");
+        Files.writeString(targetFile, BROKEN_MAIN_TF);
 
-        VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, List.of());
+        Finding finding = new Finding("CKV_AWS_21", Finding.Severity.HIGH, "main.tf", 1,
+            "aws_s3_bucket.data", "Ensure S3 bucket has versioning enabled", Finding.FindingSource.CHECKOV);
+        PatchReport patchReport = new PatchReport(List.of("main.tf"), "broken block",
+            List.of(), List.of());
 
-        assertFalse(result.passed());
-        assertEquals(StepResult.NOT_RUN, result.format());
-        assertEquals(StepResult.NOT_RUN, result.validate());
-    }
-
-    @Test
-    void syntacticallyInvalidBlockFailsFormatAndIsRejected() {
-        ProposedPatch patch = new ProposedPatch("aws_s3_bucket.data", SYNTACTICALLY_INVALID_BLOCK, "broken block");
-
-        VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, List.of());
+        Verifier verifier = createVerifier();
+        VerificationResult result = verifier.verify(tempDir, finding, patchReport);
 
         assertFalse(result.passed());
         assertEquals(StepResult.FAIL, result.format());
+        assertEquals(StepResult.NOT_RUN, result.init(), "init never runs after fmt fails");
         assertEquals(StepResult.NOT_RUN, result.validate(), "validate never runs after fmt fails");
     }
 
     @Test
-    void patchIntroducingNewCriticalFindingIsRejectedEvenThoughOriginalFindingIsFixed() {
-        List<Finding> originalFindings = new CheckovAdapter().scan(FIXTURE).stream()
-            .filter(f -> f.ruleId().equals("CKV_AWS_21") || f.ruleId().equals("CKV_AWS_145"))
-            .toList();
-        ProposedPatch patch = new ProposedPatch("aws_s3_bucket.data",
-            INTRODUCES_NEW_CRITICAL_FINDING_BLOCK, "fixes versioning/encryption but adds a wide-open bucket policy");
+    void patchIntroducingNewCriticalFindingIsRejectedEvenThoughOriginalFindingIsFixed(@TempDir Path tempDir) throws IOException {
+        Path targetFile = tempDir.resolve("main.tf");
+        Files.writeString(targetFile, POLICY_MAIN_TF);
 
-        VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, originalFindings);
+        Finding finding = new Finding("CKV_AWS_21", Finding.Severity.HIGH, "main.tf", 1,
+            "aws_s3_bucket.data", "Ensure S3 bucket has versioning enabled", Finding.FindingSource.CHECKOV);
+        PatchReport patchReport = new PatchReport(List.of("main.tf"), "fixes versioning/encryption but adds wide-open bucket policy",
+            List.of("ISR03"), List.of());
+
+        Verifier verifier = createVerifier();
+        VerificationResult result = verifier.verify(tempDir, finding, patchReport);
 
         assertFalse(result.passed(), "a new CRITICAL finding must reject the patch even though fmt/validate pass");
         assertEquals(StepResult.PASS, result.format());
+        assertEquals(StepResult.PASS, result.init());
         assertEquals(StepResult.PASS, result.validate());
         assertEquals(StepResult.FAIL, result.rescan());
-        assertTrue(result.newFindings().stream().anyMatch(f -> f.ruleId().equals("CKV_AWS_70")));
+        assertTrue(result.newCriticalOrHigh(), "a new critical/high finding should be detected");
+        assertTrue(result.newFindings().stream().anyMatch(f -> f.ruleId().equals("CKV_AWS_70")),
+            "the new finding should be CKV_AWS_70 (bucket policy allows any principal)");
     }
 }
