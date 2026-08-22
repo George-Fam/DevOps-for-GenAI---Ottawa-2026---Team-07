@@ -1,8 +1,8 @@
 {
   "version" : "1",
-  "generatedAt" : "2026-08-22T18:20:07.106390293Z",
-  "gitCommit" : "79d329b7d31ae202ea95b96bc40fef51c80711ff",
-  "previousManifestHash" : "a14b18947e47ce319cb5bcb4787a1217d7e67124453f6f656191586fc8d59c5e",
+  "generatedAt" : "2026-08-22T18:42:32.326608627Z",
+  "gitCommit" : "b334539d9d3bc39ea899c46d371228deddc7b2c2",
+  "previousManifestHash" : "e5704fb90b319cb0a64967d6a58d2facabdb28b07d71b4740be67608b961394b",
   "files" : {
     ".opencode/opencode.json" : "934d1c7769d8ac3b895e5690260d5b616bb065f59810be8cb44815fbdf1d7bc1",
     ".opencode/skills/owasp-cicd-top10/SKILL.md" : "4536f1da158670c1e438a82377f1a2d6cb2190d7fbe84f774d6f792d18257b2e",
