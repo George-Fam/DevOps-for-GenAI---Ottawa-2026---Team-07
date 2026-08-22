@@ -31,25 +31,59 @@ import java.util.List;
  */
 public class OpenCodeClient {
 
-    private static final String DEFAULT_BASE_URL = "http://localhost:4096";
+    private static final String DEFAULT_BASE_URL = "http://127.0.0.1:4096";
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(120);
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
     private final String baseUrl;
     private final Duration timeout;
+    private final ReplayHttpShim shim;
 
     public OpenCodeClient() {
-        this(DEFAULT_BASE_URL, DEFAULT_TIMEOUT);
+        this(DEFAULT_BASE_URL, DEFAULT_TIMEOUT, null);
+    }
+
+    /** Route tous les appels HTTP via le shim (record ou replay — voir {@link ReplayHttpShim}). */
+    public OpenCodeClient(ReplayHttpShim shim) {
+        this(DEFAULT_BASE_URL, DEFAULT_TIMEOUT, shim);
     }
 
     public OpenCodeClient(String baseUrl, Duration timeout) {
+        this(baseUrl, timeout, null);
+    }
+
+    public OpenCodeClient(String baseUrl, Duration timeout, ReplayHttpShim shim) {
         this.httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
+            // opencode serve (Bun) only speaks HTTP/1.1; the JDK client defaults to
+            // trying an HTTP/2 h2c upgrade first, which stalls indefinitely against
+            // it instead of falling back cleanly - forcing 1.1 avoids that hang.
+            .version(HttpClient.Version.HTTP_1_1)
             .build();
         this.mapper = new ObjectMapper();
         this.baseUrl = baseUrl;
         this.timeout = timeout;
+        this.shim = shim;
+    }
+
+    /**
+     * Point d'entrée HTTP unique : passe par le {@link ReplayHttpShim} si présent
+     * (record ou replay), sinon appelle directement le serveur OpenCode.
+     */
+    private ReplayHttpShim.SimpleResponse execute(HttpRequest request) {
+        try {
+            if (shim != null) {
+                return shim.send(httpClient, request);
+            }
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            return new ReplayHttpShim.SimpleResponse(response.statusCode(), response.body());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("OpenCode request interrupted", e);
+        }
     }
 
     /**
@@ -69,18 +103,15 @@ public class OpenCodeClient {
             .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
             .build();
 
+        ReplayHttpShim.SimpleResponse response = execute(request);
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("OpenCode createSession returned " + response.statusCode() + ": " + response.body());
+        }
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("OpenCode createSession returned " + response.statusCode() + ": " + response.body());
-            }
             JsonNode node = mapper.readTree(response.body());
             return node.path("id").asText();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("OpenCode createSession interrupted", e);
         }
     }
 
@@ -90,7 +121,8 @@ public class OpenCodeClient {
      * @param sessionId ID de la session (retourné par createSession)
      * @param agentName nom de l'agent (judge, surgeon, publisher, auditor)
      * @param prompt le prompt structuré avec contexte
-     * @param model modèle Bedrock (ex: "amazon-bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0")
+     * @param model modèle Bedrock (ex: "amazon-bedrock/anthropic.claude-sonnet-5") ;
+     *               {@code null} pour utiliser le {@code model:} du frontmatter de l'agent
      * @return JsonNode de la réponse
      */
     public JsonNode sendMessage(String sessionId, String agentName, String prompt, String model) {
@@ -111,18 +143,27 @@ public class OpenCodeClient {
             .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
             .build();
 
+        ReplayHttpShim.SimpleResponse response = execute(request);
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("OpenCode sendMessage returned " + response.statusCode() + ": " + response.body());
+        }
+        JsonNode result;
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("OpenCode sendMessage returned " + response.statusCode() + ": " + response.body());
-            }
-            return mapper.readTree(response.body());
+            result = mapper.readTree(response.body());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("OpenCode sendMessage interrupted", e);
         }
+
+        // OpenCode returns HTTP 200 even when the agent turn itself failed (bad model,
+        // missing AWS credentials, provider error) - the failure is embedded in
+        // info.error with parts left empty. Surface it immediately with a clear
+        // message instead of letting Decision/PatchReport parsing fail opaquely.
+        JsonNode error = result.path("info").path("error");
+        if (!error.isMissingNode() && !error.isNull()) {
+            String message = error.path("data").path("message").asText(error.toString());
+            throw new RuntimeException("OpenCode agent '" + agentName + "' invocation failed: " + message);
+        }
+        return result;
     }
 
     /**
@@ -138,42 +179,120 @@ public class OpenCodeClient {
             .method("PATCH", java.net.http.HttpRequest.BodyPublishers.ofString(permissionJson))
             .build();
 
-        try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("OpenCode updateConfig returned " + response.statusCode() + ": " + response.body());
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("OpenCode updateConfig interrupted", e);
+        ReplayHttpShim.SimpleResponse response = execute(request);
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("OpenCode updateConfig returned " + response.statusCode() + ": " + response.body());
         }
     }
+
+    /** Résultat d'une invocation d'agent : session (pour l'audit) + tokens consommés. */
+    public record JudgeInvocation(String sessionId, Decision decision, long tokensUsed) {}
+    public record SurgeonInvocation(String sessionId, PatchReport patchReport, long tokensUsed) {}
+    public record AuditorInvocation(String sessionId, String summaryMarkdown, long tokensUsed) {}
+    public record PublisherInvocation(String sessionId, String prUrl, String rawOutput, long tokensUsed) {}
 
     /**
      * Invoque le Judge et retourne une Decision schema-validée.
      * Crée une session dédiée, envoie le message, parse la réponse.
      */
-    public Decision invokeJudge(String prompt, String permissionJson) {
+    public JudgeInvocation invokeJudge(String prompt, String permissionJson) {
         String sessionId = createSession("yami-judge");
         updateConfig(permissionJson);
         JsonNode response = sendMessage(sessionId, "judge", prompt, null);
-        return parseDecision(response);
+        return new JudgeInvocation(sessionId, parseDecision(response), extractTokens(response));
     }
 
     /**
      * Invoque le Surgeon et retourne un PatchReport.
      * Crée une session dédiée, envoie le message, parse la réponse.
      */
-    public PatchReport invokeSurgeon(String prompt, String permissionJson) {
+    public SurgeonInvocation invokeSurgeon(String prompt, String permissionJson) {
         String sessionId = createSession("yami-surgeon");
         updateConfig(permissionJson);
         JsonNode response = sendMessage(sessionId, "surgeon", prompt, null);
-        return parsePatchReport(response);
+        return new SurgeonInvocation(sessionId, parsePatchReport(response), extractTokens(response));
     }
 
-    private Decision parseDecision(JsonNode node) {
+    /**
+     * Invoque l'Auditor (read-only) et retourne le résumé Markdown de la PR,
+     * adossé à la trace machine qu'il ne peut pas falsifier.
+     */
+    public AuditorInvocation invokeAuditor(String prompt, String permissionJson) {
+        String sessionId = createSession("yami-auditor");
+        updateConfig(permissionJson);
+        JsonNode response = sendMessage(sessionId, "auditor", prompt, null);
+        return new AuditorInvocation(sessionId, extractText(response), extractTokens(response));
+    }
+
+    /**
+     * Invoque le Publisher (seul agent autorisé à toucher git/gh, scope bash
+     * {@code git *} / {@code gh pr *}). Le Publisher exécute lui-même la
+     * séquence branche → commit → push → PR ; sa réponse texte doit contenir
+     * l'URL de la PR ouverte.
+     */
+    public PublisherInvocation invokePublisher(String prompt, String permissionJson) {
+        String sessionId = createSession("yami-publisher");
+        updateConfig(permissionJson);
+        JsonNode response = sendMessage(sessionId, "publisher", prompt, null);
+        String text = extractText(response);
+        return new PublisherInvocation(sessionId, extractPrUrl(text), text, extractTokens(response));
+    }
+
+    /** Real shape observed from `opencode serve`: {@code info.tokens.{input,output,reasoning}}. */
+    private static long extractTokens(JsonNode node) {
+        JsonNode tokens = node.path("info").path("tokens");
+        if (tokens.isMissingNode()) {
+            return 0L;
+        }
+        return tokens.path("input").asLong(0) + tokens.path("output").asLong(0) + tokens.path("reasoning").asLong(0);
+    }
+
+    private static String extractText(JsonNode node) {
+        JsonNode parts = node.path("parts");
+        if (parts.isArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode part : parts) {
+                if ("text".equals(part.path("type").asText())) {
+                    if (sb.length() > 0) {
+                        sb.append('\n');
+                    }
+                    sb.append(part.path("text").asText());
+                }
+            }
+            return sb.toString();
+        }
+        return node.path("text").asText(node.toString());
+    }
+
+    private static final java.util.regex.Pattern PR_URL_PATTERN =
+        java.util.regex.Pattern.compile("https://github\\.com/\\S+/pull/\\d+");
+
+    private static String extractPrUrl(String text) {
+        java.util.regex.Matcher matcher = PR_URL_PATTERN.matcher(text);
+        return matcher.find() ? matcher.group() : null;
+    }
+
+    private static final java.util.regex.Pattern CODE_FENCE =
+        java.util.regex.Pattern.compile("^```(?:json)?\\s*|\\s*```$");
+
+    /**
+     * The agent's actual output lives in {@code parts[].text} (see {@link #extractText}),
+     * not at the top level of the raw session-message envelope — the Judge/Surgeon
+     * agents are prompted to reply with a JSON blob as their message text (no
+     * server-side structured-output enforcement yet), sometimes fenced in a
+     * ```json ... ``` block per the example in their own prompt.
+     */
+    private JsonNode parseJsonBody(JsonNode envelope, String agentName) {
+        String text = CODE_FENCE.matcher(extractText(envelope).trim()).replaceAll("").trim();
+        try {
+            return mapper.readTree(text);
+        } catch (IOException e) {
+            throw new RuntimeException("OpenCode agent '" + agentName + "' did not return valid JSON: " + text, e);
+        }
+    }
+
+    private Decision parseDecision(JsonNode envelope) {
+        JsonNode node = parseJsonBody(envelope, "judge");
         try {
             String outcome = node.path("outcome").asText();
             String resourceAddress = node.path("resourceAddress").asText();
@@ -188,14 +307,15 @@ public class OpenCodeClient {
                 reason,
                 confidence,
                 skillsUsed,
-                false
+                shim != null && shim.isReplayMode()
             );
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse Decision from OpenCode response: " + node, e);
         }
     }
 
-    private PatchReport parsePatchReport(JsonNode node) {
+    private PatchReport parsePatchReport(JsonNode envelope) {
+        JsonNode node = parseJsonBody(envelope, "surgeon");
         try {
             List<String> filesModified = mapper.readerForListOf(String.class).readValue(node.path("filesModified"));
             String summary = node.path("summary").asText();

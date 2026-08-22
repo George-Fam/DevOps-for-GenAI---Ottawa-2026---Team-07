@@ -5,6 +5,9 @@ import com.yami.audit.KillSwitch;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -47,6 +50,47 @@ public class GithubAdapter {
             "--title", title,
             "--body", body);
         return prUrl;
+    }
+
+    /**
+     * Fichiers modifiés par la PR courante, via {@code git diff} contre
+     * {@code GITHUB_BASE_REF}. Best-effort : un checkout superficiel (pas de
+     * {@code origin/<base>} fetché) dégrade silencieusement vers une liste vide
+     * plutôt que de faire échouer le run — ce n'est qu'un enrichissement du
+     * contexte, pas un chemin critique.
+     */
+    public List<String> changedFiles() {
+        String base = System.getenv("GITHUB_BASE_REF");
+        if (base == null || base.isBlank()) {
+            return List.of();
+        }
+        try {
+            String output = runWithOutput("git", "diff", "--name-only", "origin/" + base + "...HEAD");
+            return output.isBlank() ? List.of() : List.of(output.split("\n"));
+        } catch (RuntimeException e) {
+            System.err.println("[GithubAdapter] could not compute changed files (shallow checkout?): " + e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Diff unifié par fichier pour les fichiers donnés, contre {@code GITHUB_BASE_REF}.
+     * Même dégradation silencieuse que {@link #changedFiles()}.
+     */
+    public Map<String, String> diffsFor(List<String> files) {
+        String base = System.getenv("GITHUB_BASE_REF");
+        if (base == null || base.isBlank() || files.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> diffs = new LinkedHashMap<>();
+        for (String file : files) {
+            try {
+                diffs.put(file, runWithOutput("git", "diff", "origin/" + base + "...HEAD", "--", file));
+            } catch (RuntimeException e) {
+                System.err.println("[GithubAdapter] could not diff " + file + ": " + e.getMessage());
+            }
+        }
+        return diffs;
     }
 
     public void postComment(String prNumber, String body) {

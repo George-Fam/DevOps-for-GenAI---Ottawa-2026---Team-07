@@ -2,7 +2,7 @@
 description: "Yami Surgeon — lit le fichier cible et les patterns OWASP du skill, écrit et applique le correctif. Édition strictement limitée au fichier cible injecté par le harness."
 mode: subagent
 temperature: 0.0
-model: amazon-bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+model: amazon-bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0
 permissions:
   read:
     - "{{scoped_dirs}}"

@@ -2,7 +2,7 @@
 description: "Yami Judge — lit le code et les skills OWASP, comprend le contexte, émet une Decision JSON schema-validée. Ne jamais écrire, exécuter, ou sortir du scope de lecture."
 mode: subagent
 temperature: 0.0
-model: amazon-bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+model: amazon-bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0
 permissions:
   read:
     - "{{scoped_dirs}}"

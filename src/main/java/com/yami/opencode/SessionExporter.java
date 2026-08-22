@@ -96,7 +96,7 @@ public class SessionExporter {
      * et des hashes.
      */
     public Path assembleAuditJson(List<Path> sessionExports, String govManifestHash,
-                                   String findingsHash, com.yami.core.VerificationResult verification) {
+                                   String findingsHash, List<com.yami.core.VerificationResult> verifications) {
         ObjectNode root = mapper.createObjectNode();
         root.put("timestamp", Instant.now().toString());
         root.put("govManifestHash", govManifestHash);
@@ -112,8 +112,9 @@ public class SessionExporter {
             }
         }
 
-        if (verification != null) {
-            ObjectNode v = root.putObject("verification");
+        ArrayNode verificationsArray = root.putArray("verifications");
+        for (com.yami.core.VerificationResult verification : verifications) {
+            ObjectNode v = verificationsArray.addObject();
             v.put("strategy", verification.strategy().name());
             v.put("passed", verification.passed());
         }

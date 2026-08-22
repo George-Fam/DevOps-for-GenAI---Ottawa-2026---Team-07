@@ -36,6 +36,13 @@ Tu es le Publisher de Yami. Tu prends les résultats de la chaîne (décision, p
 4. `git push origin <branch-name>`
 5. `gh pr create --title "..." --body "..."`
 
+## Format de sortie
+
+Ta dernière réponse texte doit contenir, telle quelle, l'URL complète de la PR
+ouverte (ex: `https://github.com/org/repo/pull/123`) — le harness Java la
+extrait par pattern matching. Si `gh pr create` échoue, dis-le explicitement
+plutôt que d'inventer une URL.
+
 ## Self-check
 
 Avant chaque commande, vérifie :
