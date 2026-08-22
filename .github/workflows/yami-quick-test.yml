@@ -1,0 +1,55 @@
+name: Yami Quick Test
+
+# Manual-only: scopes the gate to fixtures/quick_test's ~6 findings instead of
+# the full fixtures tree's 74, so a pipeline run finishes in a couple minutes.
+# Never runs on pull_request or push - dispatch it by hand from the Actions tab
+# (or `gh workflow run yami-quick-test.yml`) when you want a fast end-to-end check.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  yami:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@b36c23c0d998641eff861008f374ee103c25ac73 # v4.4.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build yami.jar
+        run: make package
+
+      - uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          policy-file: policies/yami.yml
+          scope: "fixtures/quick_test/**/*.tf"
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload Yami audit trail
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: yami-quick-test-audit-trail
+          path: |
+            .yami-audit/opencode-serve.log
+            .yami-audit/audit.json
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,8 +1,11 @@
 name: Yami Security Gate
 
 on:
-  pull_request:
-    types: [opened, synchronize]
+  # Automatic pull_request trigger disabled: a full run scans the whole
+  # fixtures/ tree (~74 findings, ~15min against real Bedrock) - too slow to
+  # gate every PR on right now. Dispatch manually when a full-scope run is
+  # actually needed; use yami-quick-test.yml for fast iteration instead.
+  workflow_dispatch: {}
 
 permissions:
   contents: write
