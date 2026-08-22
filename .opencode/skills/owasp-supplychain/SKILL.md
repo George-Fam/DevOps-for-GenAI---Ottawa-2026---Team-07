@@ -1,3 +1,15 @@
+---
+name: owasp-supplychain
+description: >-
+  Skill OWASP Top 10:2025 A03 Software Supply Chain Failures + SLSA pour Yami.
+  Guide le Judge et le Surgeon dans la décision et la remédiation des
+  vulnérabilités supply chain. Utilise ce skill quand le finding provient de
+  TRIVY ou concerne les dépendances non pinnées, les images Docker :latest,
+  les téléchargements curl|bash non vérifiés, les packages obsolètes avec CVE,
+  ou l'absence de SBOM/provenance.
+compatibility: opencode
+---
+
 # owasp-supplychain
 
 Skill OWASP Top 10:2025 A03 Software Supply Chain Failures + SLSA pour Yami. Guide le Judge et le Surgeon dans la décision et la remédiation des vulnérabilités supply chain.

@@ -1,3 +1,15 @@
+---
+name: owasp-llm-top10
+description: >-
+  Skill OWASP Top 10 for LLM Applications 2025 (LLM01-10) pour Yami. Méta-audit :
+  sécurise Yami lui-même contre les risques LLM (prompt injection, excessive
+  agency, fuite d'informations, supply chain du modèle, etc.). Utilise ce skill
+  quand le finding concerne la sécurité de l'agent IA lui-même, les tentatives
+  de manipulation du Judge/Surgeon via le contenu du repo, ou la gouvernance
+  des permissions et du budget tokens.
+compatibility: opencode
+---
+
 # owasp-llm-top10
 
 Skill OWASP Top 10 for LLM Applications 2025 pour Yami. Méta-audit : sécurise Yami lui-même contre les risques LLM.

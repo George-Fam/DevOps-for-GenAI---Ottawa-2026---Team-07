@@ -1,3 +1,15 @@
+---
+name: owasp-iac-security
+description: >-
+  Skill OWASP Top 10 Infrastructure Security Risks 2024 (ISR01-10) + IaC Security
+  Cheat Sheet pour Yami. Guide le Judge et le Surgeon dans la décision et la
+  remédiation des vulnérabilités Infrastructure-as-Code (Terraform, CloudFormation,
+  ARM, etc.). Utilise ce skill quand le finding provient de CHECKOV ou concerne
+  les configurations cloud, le chiffrement, le réseau, l'IAM, ou les fuites
+  d'information dans l'infrastructure.
+compatibility: opencode
+---
+
 # owasp-iac-security
 
 Skill OWASP Top 10 Infrastructure Security Risks 2024 + IaC Security Cheat Sheet pour Yami. Guide le Judge et le Surgeon dans la décision et la remédiation des vulnérabilités Infrastructure-as-Code.

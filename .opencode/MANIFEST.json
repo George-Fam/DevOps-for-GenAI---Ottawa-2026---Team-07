@@ -1,8 +1,8 @@
 {
   "version" : "1",
-  "generatedAt" : "2026-08-22T07:09:49.998721173Z",
-  "gitCommit" : "c1c7a4d0a9c53e3f98afaf6e18076c75a44da6f1",
-  "previousManifestHash" : "0ca5190c3499784400e5cd140867b40cd108f28c1f17b58ea1a7dabd41237c80",
+  "generatedAt" : "2026-08-22T07:46:18.184937412Z",
+  "gitCommit" : "e60aa370a234fa7e7f014f7c9871c8bb9cc7ed80",
+  "previousManifestHash" : "a3ae414b1d9cec1591c09ca58d5f16659fd20f84f6e6afd0705d584743748f7d",
   "files" : {
     ".opencode/agents/auditor.md" : "d35a0d0450572d3f96031be3770e99ad1a987efa2cbe119b23819470667f40ad",
     ".opencode/agents/judge.md" : "a627da7b0fff66114c9edca5380b5870a9b456fa5e631cd79679fc141fde6c83",
@@ -85,9 +85,9 @@
     ".opencode/opencode.json" : "934d1c7769d8ac3b895e5690260d5b616bb065f59810be8cb44815fbdf1d7bc1",
     ".opencode/package-lock.json" : "fd52d6352139980acd75e7835c5d098eb2e815f4a4b0287c6b6ee52fd4489a7b",
     ".opencode/package.json" : "98575db4d1ec7236102791dad544b3dd7d0b23dde923501fb9d2b8b52ccae3a3",
-    ".opencode/skills/owasp-cicd-top10/SKILL.md" : "4f666aa1589c3bb022452f89d4c49ddcc866e8cce9e403882ef0ba275e028de1",
-    ".opencode/skills/owasp-iac-security/SKILL.md" : "557f6d1c0fcac6d6d08d5318d58bc1b7ddd58c28ecda847ead4a5909cc9ccfd4",
-    ".opencode/skills/owasp-llm-top10/SKILL.md" : "a6f0bea73e312fcd7da1cd8c4f70c5b170e77bcc56105b19cf7172270851c56f",
-    ".opencode/skills/owasp-supplychain/SKILL.md" : "bd19c6670ef9fc8a38b6bc10a4f26653a34f51d4243adad4702db507e18cc1fe"
+    ".opencode/skills/owasp-cicd-top10/SKILL.md" : "4536f1da158670c1e438a82377f1a2d6cb2190d7fbe84f774d6f792d18257b2e",
+    ".opencode/skills/owasp-iac-security/SKILL.md" : "e83c1957e5df07d784ba03084536b4161699a4103fe8f5182884dfb04a8ce716",
+    ".opencode/skills/owasp-llm-top10/SKILL.md" : "1f5b5e60d945c18edbf56fee5bfa8ddbd9ffd444a63b3a70d115e1e8b969ad6b",
+    ".opencode/skills/owasp-supplychain/SKILL.md" : "cc0fafe3c162dd48801aa994756dc2618c965d984af7646bc173b7fdfd7dae72"
   }
 }

@@ -1,3 +1,14 @@
+---
+name: owasp-cicd-top10
+description: >-
+  Skill OWASP Top 10 CI/CD Security Risks pour Yami. Guide le Judge et le Surgeon
+  dans la décision et la remédiation des vulnérabilités CI/CD (CICD-SEC-1..10).
+  Utilise ce skill quand le finding provient de CICD_RULES ou concerne les
+  workflows GitHub Actions, les pipelines CI/CD, les actions non épinglées,
+  les secrets exposés, ou le Poisoned Pipeline Execution (PPE).
+compatibility: opencode
+---
+
 # owasp-cicd-top10
 
 Skill OWASP Top 10 CI/CD Security Risks pour Yami. Guide le Judge et le Surgeon dans la décision et la remédiation des vulnérabilités CI/CD.
