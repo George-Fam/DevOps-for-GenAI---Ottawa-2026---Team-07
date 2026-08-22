@@ -272,22 +272,39 @@ public class OpenCodeClient {
         return matcher.find() ? matcher.group() : null;
     }
 
-    private static final java.util.regex.Pattern CODE_FENCE =
-        java.util.regex.Pattern.compile("^```(?:json)?\\s*|\\s*```$");
+    private static final java.util.regex.Pattern FENCED_BLOCK =
+        java.util.regex.Pattern.compile("```(?:json)?\\s*\\n?(.*?)```", java.util.regex.Pattern.DOTALL);
 
     /**
      * The agent's actual output lives in {@code parts[].text} (see {@link #extractText}),
-     * not at the top level of the raw session-message envelope — the Judge/Surgeon
-     * agents are prompted to reply with a JSON blob as their message text (no
-     * server-side structured-output enforcement yet), sometimes fenced in a
-     * ```json ... ``` block per the example in their own prompt.
+     * not at the top level of the raw session-message envelope. No server-side
+     * structured-output enforcement yet — the Judge/Surgeon agents are prompted to
+     * reply with a JSON blob, but in practice (confirmed against a real Bedrock
+     * response) they wrap it in their own reasoning prose and a "self-check"
+     * section per their own agent .md instructions, e.g.:
+     * {@code "Analyse ...\n```json\n{...}\n```\n## Self-check\n- [x] ..."}.
+     * So: prefer the first fenced ``` block anywhere in the text; if there isn't
+     * one, fall back to the outermost {@code {...}} span; if neither is found,
+     * fall back to the whole trimmed text so the error message stays informative.
      */
     private JsonNode parseJsonBody(JsonNode envelope, String agentName) {
-        String text = CODE_FENCE.matcher(extractText(envelope).trim()).replaceAll("").trim();
+        String raw = extractText(envelope).trim();
+
+        java.util.regex.Matcher fence = FENCED_BLOCK.matcher(raw);
+        String candidate = fence.find() ? fence.group(1).trim() : raw;
+
+        if (!candidate.startsWith("{")) {
+            int start = candidate.indexOf('{');
+            int end = candidate.lastIndexOf('}');
+            if (start >= 0 && end > start) {
+                candidate = candidate.substring(start, end + 1);
+            }
+        }
+
         try {
-            return mapper.readTree(text);
+            return mapper.readTree(candidate);
         } catch (IOException e) {
-            throw new RuntimeException("OpenCode agent '" + agentName + "' did not return valid JSON: " + text, e);
+            throw new RuntimeException("OpenCode agent '" + agentName + "' did not return valid JSON: " + raw, e);
         }
     }
 
