@@ -2,9 +2,9 @@
 
 > **Project:** Yami - AI-Powered Security Gate for IaC, CI/CD, and Supply Chain
 > **Theme:** Track 1 - Autonomous DevOps (AI-Powered CI/CD)
-> **Version:** 1.0
+> **Version:** 1.1
 > **Date:** 2026-08-22
-> **Status:** Active. Aligned with implementation (pivot-v2.2).
+> **Status:** Active. Reconciled against implementation as of commit `5fb2515` — see §2.3 for the one known open gap between designed and enforced controls.
 
 ---
 
@@ -48,7 +48,8 @@ Yami is classified as **medium risk** per the NIST AI Risk Management Framework 
 - The AI writes code (remediation patches), which could introduce vulnerabilities if incorrect
 - The AI reads untrusted repository content (potential prompt injection)
 - The system has autonomous execution capabilities (PR creation)
-- **However:** Multiple deterministic controls prevent unilateral AI action
+- The per-invocation permission-scoping layer is not yet fully proven end-to-end (§2.3)
+- **However:** Multiple deterministic controls that do not depend on that layer — constitutional veto, verification gate, no-merge — prevent unilateral AI action from reaching production unreviewed
 
 ### 2.2 Risk-Based Controls
 
@@ -58,8 +59,14 @@ Yami is classified as **medium risk** per the NIST AI Risk Management Framework 
 | AI is manipulated by repo content | **Constitutional veto** (Java, pre-Judge) + LLM01 inoculation | Pre-Judge |
 | AI creates unauthorized PRs | **Scoped token** (`contents:write` + `pull_requests:write` only) | GitHub Actions |
 | AI exceeds budget | **TokenBudget** (1M tokens) → **KillSwitch** | Runtime |
-| AI modifies wrong file | **OPENCODE_PERMISSION** (single file only) | Per-invocation |
+| AI modifies wrong file | **OPENCODE_PERMISSION** (single file only) — *designed, not yet functionally enforced by OpenCode's runtime; see §2.3* | Per-invocation |
 | AI merges without approval | **Branch protection** + no merge permission | GitHub platform |
+
+### 2.3 Known Gap: Permission Scoping vs. Verification Gate
+
+Live testing against real Bedrock (this session) found that OpenCode's own per-invocation permission engine does not yet enforce the "Surgeon edits only the target file" control end-to-end — the persistent `opencode serve` process currently runs inside the scanned repo directory (a workaround for an `external_directory` hang), and the `{{scoped_dirs}}`/`{{target_file}}` template placeholders in the agent frontmatter are never substituted. Full detail and evidence: [`docs/THREAT_MODEL.md` §3.1](THREAT_MODEL.md#31-known-gap-per-invocation-permission-scoping-is-not-yet-enforced), tracked as [issue #4](https://github.com/George-Fam/DevOps-for-GenAI---Ottawa-2026---Team-07/issues/4) (P0).
+
+This does **not** mean an unreviewed bad patch can reach production: the risk is caught downstream by controls that don't depend on OpenCode's permission engine — the deterministic **Verifier** (re-scan + `terraform validate`/`actionlint`) rejects any patch that breaks syntax or introduces a new HIGH/CRITICAL finding, and the **Publisher never has merge permission**, so a human always makes the final call. What's unproven is the *scoping* layer specifically, not the overall no-unreviewed-merge guarantee.
 
 ---
 
@@ -169,7 +176,7 @@ The PR body contains:
 | Attribute | Value |
 |---|---|
 | **Provider** | Amazon Bedrock |
-| **Model** | Claude 3.5 Sonnet v2 (`anthropic.claude-3-5-sonnet-20241022-v2:0`) |
+| **Model** | Claude Sonnet 4.5 (`amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0`) |
 | **Temperature** | `0.0` (deterministic) |
 | **Output format** | Structured JSON (JSON schema validated) |
 | **Retry policy** | `retryCount: 2` for invalid JSON |

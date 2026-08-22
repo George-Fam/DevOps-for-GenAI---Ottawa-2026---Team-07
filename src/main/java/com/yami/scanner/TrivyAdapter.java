@@ -24,7 +24,26 @@ public class TrivyAdapter {
     }
 
     public List<Finding> scan(Path repoRoot, List<String> scanPaths, List<String> excludePaths) {
-        List<String> args = buildArgs(repoRoot, excludePaths);
+        // buildArgs always pointed trivy at repoRoot regardless of scanPaths, so a
+        // scope/YAMI_SCOPE override never actually restricted what trivy scanned - it
+        // silently scanned the whole repo (all fixtures, root Dockerfile, etc.) every
+        // time. Mirrors CheckovAdapter's fix: when scanPaths cleanly resolves to real
+        // subdirectories, run one scan per subdirectory instead of always scanning
+        // repoRoot; otherwise (the default policy's mixed glob/bare-filename scope)
+        // fall back to a single full-repo scan, unchanged from today's behavior.
+        List<Path> scanDirs = ScopeResolver.resolveScanDirectories(repoRoot, scanPaths);
+        if (scanDirs.isEmpty()) {
+            return runTrivy(repoRoot, repoRoot, excludePaths);
+        }
+        List<Finding> findings = new ArrayList<>();
+        for (Path dir : scanDirs) {
+            findings.addAll(runTrivy(repoRoot, dir, excludePaths));
+        }
+        return findings;
+    }
+
+    private List<Finding> runTrivy(Path repoRoot, Path scanDir, List<String> excludePaths) {
+        List<String> args = buildArgs(scanDir, excludePaths);
 
         // Fixed argv list built from args.add(...) calls, never a shell string.
         // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
@@ -61,9 +80,14 @@ public class TrivyAdapter {
             throw new IllegalStateException("trivy output was not valid JSON; stderr: " + stderr, e);
         }
 
+        // Scanning a subdirectory directly (rather than repoRoot) makes trivy report
+        // Target relative to that subdirectory (e.g. "main.tf", or "." for the
+        // directory itself) - re-anchor it to repoRoot so Harness can locate the file.
+        String prefix = repoRoot.relativize(scanDir).toString();
+
         List<Finding> findings = new ArrayList<>();
         for (JsonNode result : root.path("Results")) {
-            String target = result.path("Target").asText();
+            String target = toRepoRelative(prefix, result.path("Target").asText());
             for (JsonNode vuln : result.path("Vulnerabilities")) {
                 findings.add(toVulnFinding(vuln, target));
             }
@@ -72,6 +96,16 @@ public class TrivyAdapter {
             }
         }
         return findings;
+    }
+
+    private static String toRepoRelative(String prefixDir, String target) {
+        if (prefixDir.isEmpty()) {
+            return target;
+        }
+        if (target.equals(".")) {
+            return prefixDir;
+        }
+        return prefixDir + "/" + target;
     }
 
     /**

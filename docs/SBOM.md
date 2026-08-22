@@ -54,6 +54,7 @@
 | Actionlint | `1.7.12` | Binary URL | `actionlint_1.7.12_linux_amd64.tar.gz` | `actionlint --version` |
 | Trivy | `0.74.0` | Binary + SHA256 | `sha256:2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a` | `trivy --version` |
 | OpenCode | `1.18.21` | Binary + SHA256 | `sha256:d910c3ed7613bb5791a328904615d41cc25b7d3a6b470e3199ab0426a995b38a` | `opencode --version` |
+| gh CLI | `2.98.0` | Binary + SHA256 | `sha256:3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de` | `gh --version` |
 
 ### 2.3 Known Gaps
 

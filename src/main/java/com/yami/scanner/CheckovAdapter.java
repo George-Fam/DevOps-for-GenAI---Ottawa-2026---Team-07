@@ -6,7 +6,6 @@ import com.yami.core.Finding;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,7 +50,7 @@ public class CheckovAdapter {
         // --file at all. Anything that doesn't resolve (globs, bare filenames like
         // "Dockerfile"/"pom.xml") falls back to a single full -d scan from terraformDir -
         // exactly today's behavior for the default policy scope.
-        List<Path> scanDirs = resolveScanDirectories(terraformDir, scanPaths);
+        List<Path> scanDirs = ScopeResolver.resolveScanDirectories(terraformDir, scanPaths);
         if (scanDirs.isEmpty()) {
             return runCheckov(terraformDir, excludePaths);
         }
@@ -60,26 +59,6 @@ public class CheckovAdapter {
             findings.addAll(runCheckov(dir, excludePaths));
         }
         return findings;
-    }
-
-    /** A scanPath resolves to a directory scope only if, after stripping a trailing
-     * "/**", it's a literal path (no glob metacharacters) that exists as a directory
-     * under terraformDir. If any scanPath doesn't resolve this way, bail out entirely
-     * (empty list) rather than scanning a partial subset of the intended scope. */
-    private static List<Path> resolveScanDirectories(Path terraformDir, List<String> scanPaths) {
-        List<Path> dirs = new ArrayList<>();
-        for (String p : scanPaths) {
-            String stripped = p.endsWith("/**") ? p.substring(0, p.length() - 3) : p;
-            if (stripped.isEmpty() || stripped.chars().anyMatch(c -> c == '*' || c == '?' || c == '[')) {
-                return List.of();
-            }
-            Path candidate = terraformDir.resolve(stripped).normalize();
-            if (!Files.isDirectory(candidate)) {
-                return List.of();
-            }
-            dirs.add(candidate);
-        }
-        return dirs;
     }
 
     private List<Finding> runCheckov(Path directory, List<String> excludePaths) {

@@ -49,7 +49,12 @@ cd yami
 
 ### 3.1 GitHub Action Integration
 
-Add `.github/workflows/yami.yml` to your repository:
+Yami ships two workflows against its own repository (`.github/workflows/`):
+
+- **`yami.yml`** — the full-scope gate. Triggered by `workflow_dispatch` only (**not** an automatic `pull_request` trigger): a full run scans the entire `fixtures/` tree (~74 findings, ~15 min against real Bedrock), too slow to gate every PR on during the hackathon. Dispatch manually (`gh workflow run yami.yml`) when a full-scope run is actually needed.
+- **`yami-quick-test.yml`** — fast iteration. Scoped to `fixtures/quick_test/**` (~6 findings, a couple of minutes) via both `scope:` and a `paths:` filter on its `pull_request` trigger, so it fires automatically on PRs that touch that fixture (giving `Harness` a real PR number to comment on) without slowing down unrelated PRs. Can also be dispatched by hand.
+
+Minimal integration example for a **consumer repository** (adjust the trigger to your own risk/latency tolerance):
 
 ```yaml
 name: Yami Security Gate
@@ -64,10 +69,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # Harness needs origin/<base> for changedFiles()/diffsFor()
       - uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           policy-file: policies/yami.yml
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 ```
 
 ### 3.2 Action Inputs
@@ -80,6 +90,10 @@ jobs:
 | `scope` | No | `''` | Override scan paths (comma-separated) |
 | `replay-mode` | No | `false` | Enable replay mode for testing |
 | `replay-file` | No | `replay.jsonl` | Replay file path |
+| `aws-access-key-id` | No | `''` | AWS IAM access key scoped to `bedrock:InvokeModel` only (fallback path — OIDC is preferred) |
+| `aws-secret-access-key` | No | `''` | AWS IAM secret key, paired with `aws-access-key-id` |
+| `aws-session-token` | No | `''` | AWS session token, only needed for temporary/STS credentials |
+| `aws-region` | No | `us-east-1` | AWS region for the Bedrock provider — must match `.opencode/opencode.json` |
 
 ### 3.3 Action Outputs
 
@@ -316,6 +330,7 @@ make manifest
 | Trivy | Update URL + SHA256 in Dockerfile | `trivy --version` |
 | OpenCode | Update URL + SHA256 in Dockerfile | `opencode --version` |
 | Actionlint | Update URL + SHA256 in Dockerfile | `actionlint --version` |
+| gh CLI | Update URL + SHA256 in Dockerfile | `gh --version` |
 
 ### 11.2 Security Scans
 
