@@ -50,3 +50,18 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
+
+      # opencode-serve.log carries the real provider/model error (bad model ARN,
+      # missing IAM permission, Bedrock throttling) behind what the Harness
+      # otherwise only sees as a bare client-side timeout - see issue #43.
+      # if: always() so this uploads on gate failure too, not just success.
+      - name: Upload Yami audit trail
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: yami-audit-trail
+          path: |
+            .yami-audit/opencode-serve.log
+            .yami-audit/audit.json
+          if-no-files-found: ignore
+          retention-days: 14
