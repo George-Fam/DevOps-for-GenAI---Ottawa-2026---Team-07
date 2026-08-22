@@ -284,8 +284,10 @@ public class OpenCodeClient {
         return matcher.find() ? matcher.group() : null;
     }
 
+    private static final java.util.regex.Pattern FENCED_JSON_BLOCK =
+        java.util.regex.Pattern.compile("```json\\s*\\n?(.*?)```", java.util.regex.Pattern.DOTALL);
     private static final java.util.regex.Pattern FENCED_BLOCK =
-        java.util.regex.Pattern.compile("```(?:json)?\\s*\\n?(.*?)```", java.util.regex.Pattern.DOTALL);
+        java.util.regex.Pattern.compile("```(?:\\w*)\\s*\\n?(.*?)```", java.util.regex.Pattern.DOTALL);
 
     /**
      * The agent's actual output lives in {@code parts[].text} (see {@link #extractText}),
@@ -295,15 +297,38 @@ public class OpenCodeClient {
      * response) they wrap it in their own reasoning prose and a "self-check"
      * section per their own agent .md instructions, e.g.:
      * {@code "Analyse ...\n```json\n{...}\n```\n## Self-check\n- [x] ..."}.
-     * So: prefer the first fenced ``` block anywhere in the text; if there isn't
-     * one, fall back to the outermost {@code {...}} span; if neither is found,
-     * fall back to the whole trimmed text so the error message stays informative.
+     * The Judge is also prompted to quote hostile repo content verbatim when
+     * explaining a detected prompt-injection attempt (LLM01 inoculation), so an
+     * earlier fenced block (e.g. ```terraform quoting the malicious comment) can
+     * precede the real decision block — confirmed against a real Bedrock response
+     * for the acte4bis_injection fixture. So: prefer an explicitly ```json-tagged
+     * block; if none, take the *last* fenced block whose content actually starts
+     * with {; if neither is found, fall back to the outermost {@code {...}} span
+     * across the whole text; if that's not found either, fall back to the whole
+     * trimmed text so the error message stays informative.
      */
     private JsonNode parseJsonBody(JsonNode envelope, String agentName) {
         String raw = extractText(envelope).trim();
+        String candidate = null;
 
-        java.util.regex.Matcher fence = FENCED_BLOCK.matcher(raw);
-        String candidate = fence.find() ? fence.group(1).trim() : raw;
+        java.util.regex.Matcher jsonFence = FENCED_JSON_BLOCK.matcher(raw);
+        if (jsonFence.find()) {
+            candidate = jsonFence.group(1).trim();
+        }
+
+        if (candidate == null) {
+            java.util.regex.Matcher fence = FENCED_BLOCK.matcher(raw);
+            while (fence.find()) {
+                String block = fence.group(1).trim();
+                if (block.startsWith("{")) {
+                    candidate = block;
+                }
+            }
+        }
+
+        if (candidate == null) {
+            candidate = raw;
+        }
 
         if (!candidate.startsWith("{")) {
             int start = candidate.indexOf('{');
