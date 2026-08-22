@@ -58,12 +58,10 @@ class LiveBedrockClientTest {
 
         Decision decision = client.parseResponse(RULE_ID, RESOURCE_ADDRESS, response);
 
-        assertEquals(Decision.DecisionType.SAFE_FIX, decision.decision());
-        assertEquals(RULE_ID, decision.ruleId());
-        assertEquals(RESOURCE_ADDRESS, decision.proposedPatch().resourceAddress());
+        assertEquals(Decision.DecisionType.SAFE_FIX, decision.outcome());
+        assertEquals(RESOURCE_ADDRESS, decision.resourceAddress());
         assertFalse(decision.fallbackMode());
         assertEquals(0.9, decision.confidence());
-        assertTrue(decision.verificationRequired());
     }
 
     @Test
@@ -77,9 +75,8 @@ class LiveBedrockClientTest {
 
         Decision decision = client.parseResponse(RULE_ID, RESOURCE_ADDRESS, response);
 
-        assertEquals(Decision.DecisionType.HUMAN_REVIEW, decision.decision());
-        assertEquals(RULE_ID, decision.ruleId(), "ruleId always comes from the input, never the model");
-        assertNull(decision.proposedPatch());
+        assertEquals(Decision.DecisionType.HUMAN_REVIEW, decision.outcome());
+        assertEquals(RESOURCE_ADDRESS, decision.resourceAddress());
         assertTrue(decision.reason().contains("cross-check failed"));
     }
 
@@ -93,7 +90,7 @@ class LiveBedrockClientTest {
 
         Decision decision = client.parseResponse(RULE_ID, RESOURCE_ADDRESS, response);
 
-        assertEquals(Decision.DecisionType.HUMAN_REVIEW, decision.decision());
+        assertEquals(Decision.DecisionType.HUMAN_REVIEW, decision.outcome());
         assertTrue(decision.reason().contains("no replacementBlock"));
     }
 
@@ -105,8 +102,8 @@ class LiveBedrockClientTest {
 
         Decision decision = client.parseResponse(RULE_ID, RESOURCE_ADDRESS, response);
 
-        assertEquals(Decision.DecisionType.HUMAN_REVIEW, decision.decision());
-        assertEquals(RULE_ID, decision.ruleId());
+        assertEquals(Decision.DecisionType.HUMAN_REVIEW, decision.outcome());
+        assertEquals(RESOURCE_ADDRESS, decision.resourceAddress());
     }
 
     private static ConverseResponse toolUseResponse(Document input) {

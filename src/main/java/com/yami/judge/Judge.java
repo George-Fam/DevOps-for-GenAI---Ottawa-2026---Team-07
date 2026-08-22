@@ -4,6 +4,8 @@ import com.yami.core.Decision;
 import com.yami.core.RiskContextPacket;
 import com.yami.policy.PolicyEngine;
 
+import java.util.List;
+
 /**
  * Applies deterministic policy thresholds first: PolicyEngine decides whether SAFE_FIX is
  * even possible for this rule category. If policy already says BLOCK or HUMAN_REVIEW,
@@ -24,7 +26,7 @@ public class Judge {
     public Decision decide(RiskContextPacket packet, String ruleId, String resourceAddress) {
         Decision.DecisionType policyDecision = policyEngine.classify(ruleId, packet, resourceAddress);
         if (policyDecision != Decision.DecisionType.SAFE_FIX) {
-            return new Decision(policyDecision, ruleId, "policy default for " + ruleId, null, null, false, false);
+            return new Decision(policyDecision, resourceAddress, null, "policy default for " + ruleId, 0.0, List.of(), false);
         }
         return bedrockClient.invoke(packet, ruleId, resourceAddress);
     }

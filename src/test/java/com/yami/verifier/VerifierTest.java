@@ -99,10 +99,10 @@ class VerifierTest {
 
         VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, originalFindings);
 
-        assertTrue(result.passed(), () -> "expected pass, got fmt=" + result.terraformFormat()
-            + " validate=" + result.terraformValidate() + " rescan=" + result.rescan());
-        assertEquals(StepResult.PASS, result.terraformFormat());
-        assertEquals(StepResult.PASS, result.terraformValidate());
+        assertTrue(result.passed(), () -> "expected pass, got fmt=" + result.format()
+            + " validate=" + result.validate() + " rescan=" + result.rescan());
+        assertEquals(StepResult.PASS, result.format());
+        assertEquals(StepResult.PASS, result.validate());
         assertEquals(StepResult.PASS, result.rescan());
         assertTrue(result.newFindings().isEmpty());
     }
@@ -114,8 +114,8 @@ class VerifierTest {
         VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, List.of());
 
         assertFalse(result.passed());
-        assertEquals(StepResult.NOT_RUN, result.terraformFormat());
-        assertEquals(StepResult.NOT_RUN, result.terraformValidate());
+        assertEquals(StepResult.NOT_RUN, result.format());
+        assertEquals(StepResult.NOT_RUN, result.validate());
     }
 
     @Test
@@ -125,8 +125,8 @@ class VerifierTest {
         VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, List.of());
 
         assertFalse(result.passed());
-        assertEquals(StepResult.FAIL, result.terraformFormat());
-        assertEquals(StepResult.NOT_RUN, result.terraformValidate(), "validate never runs after fmt fails");
+        assertEquals(StepResult.FAIL, result.format());
+        assertEquals(StepResult.NOT_RUN, result.validate(), "validate never runs after fmt fails");
     }
 
     @Test
@@ -140,8 +140,8 @@ class VerifierTest {
         VerificationResult result = verifier.verify(FIXTURE, Path.of("main.tf"), patch, originalFindings);
 
         assertFalse(result.passed(), "a new CRITICAL finding must reject the patch even though fmt/validate pass");
-        assertEquals(StepResult.PASS, result.terraformFormat());
-        assertEquals(StepResult.PASS, result.terraformValidate());
+        assertEquals(StepResult.PASS, result.format());
+        assertEquals(StepResult.PASS, result.validate());
         assertEquals(StepResult.FAIL, result.rescan());
         assertTrue(result.newFindings().stream().anyMatch(f -> f.ruleId().equals("CKV_AWS_70")));
     }

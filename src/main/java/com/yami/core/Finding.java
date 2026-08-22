@@ -1,5 +1,8 @@
 package com.yami.core;
 
+/**
+ * Finding normalisé provenant des scanners (checkov, CicdRules, trivy).
+ */
 public record Finding(
     String ruleId,
     Severity severity,
@@ -10,5 +13,5 @@ public record Finding(
     FindingSource source
 ) {
     public enum Severity { LOW, MEDIUM, HIGH, CRITICAL }
-    public enum FindingSource { CHECKOV, CICD_RULES }
+    public enum FindingSource { CHECKOV, CICD_RULES, TRIVY }
 }

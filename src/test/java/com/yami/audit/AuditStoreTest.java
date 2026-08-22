@@ -23,7 +23,7 @@ class AuditStoreTest {
     void recordsAndPersistsARun(@TempDir Path tempDir) throws SQLException {
         Path db = tempDir.resolve("audit.db");
         RiskContextPacket packet = emptyPacket("hash123");
-        Decision decision = new Decision(Decision.DecisionType.HUMAN_REVIEW, "CLOUD-001", "needs a human", null, null, false, false);
+        Decision decision = new Decision(Decision.DecisionType.HUMAN_REVIEW, "aws_s3_bucket.data", null, "needs a human", 0.0, List.of(), false);
 
         try (AuditStore store = new AuditStore(db)) {
             store.record(packet, decision, null, "abc123commit");
@@ -46,7 +46,7 @@ class AuditStoreTest {
     @Test
     void chainIsIntactAcrossMultipleRunsAndTamperingIsDetected(@TempDir Path tempDir) throws SQLException {
         Path db = tempDir.resolve("audit.db");
-        Decision decision = new Decision(Decision.DecisionType.BLOCK, "CICD-001", "unsafe workflow", null, null, false, false);
+        Decision decision = new Decision(Decision.DecisionType.BLOCK, "aws_s3_bucket.data", null, "unsafe workflow", 0.0, List.of(), false);
 
         try (AuditStore store = new AuditStore(db)) {
             store.record(emptyPacket("hash1"), decision, null, "commit1");

@@ -50,35 +50,36 @@ public class Verifier {
         try {
             before = checkovAdapter.scan(workDir);
         } catch (RuntimeException e) {
-            return new VerificationResult(StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_VERIFIED, List.of(), null);
+            return new VerificationResult(VerificationResult.Strategy.TERRAFORM, StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_VERIFIED, List.of(), false, false, null);
         }
 
         Path targetFile = workDir.resolve(relativeTerraformFile);
         try {
             blockReplacer.replace(targetFile, patch.resourceAddress(), patch.replacementBlock());
         } catch (HclBlockReplacer.BlockNotFoundException | IllegalStateException e) {
-            return new VerificationResult(StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_RUN, List.of(), null);
+            return new VerificationResult(VerificationResult.Strategy.TERRAFORM, StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_RUN, List.of(), false, false, null);
         }
 
         StepResult formatResult = run(workDir, "terraform", "fmt", "-check=false") == 0 ? StepResult.PASS : StepResult.FAIL;
         if (formatResult != StepResult.PASS) {
-            return new VerificationResult(formatResult, StepResult.NOT_RUN, StepResult.NOT_RUN, List.of(), null);
+            return new VerificationResult(VerificationResult.Strategy.TERRAFORM, formatResult, StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_RUN, List.of(), false, false, null);
         }
 
-        if (run(workDir, "terraform", "init", "-input=false") != 0) {
-            return new VerificationResult(formatResult, StepResult.FAIL, StepResult.NOT_RUN, List.of(), null);
+        StepResult initResult = run(workDir, "terraform", "init", "-input=false") == 0 ? StepResult.PASS : StepResult.FAIL;
+        if (initResult != StepResult.PASS) {
+            return new VerificationResult(VerificationResult.Strategy.TERRAFORM, formatResult, initResult, StepResult.NOT_RUN, StepResult.NOT_RUN, List.of(), false, false, null);
         }
 
         StepResult validateResult = run(workDir, "terraform", "validate") == 0 ? StepResult.PASS : StepResult.FAIL;
         if (validateResult != StepResult.PASS) {
-            return new VerificationResult(formatResult, validateResult, StepResult.NOT_RUN, List.of(), null);
+            return new VerificationResult(VerificationResult.Strategy.TERRAFORM, formatResult, initResult, validateResult, StepResult.NOT_RUN, List.of(), false, false, null);
         }
 
         List<Finding> after;
         try {
             after = checkovAdapter.scan(workDir);
         } catch (RuntimeException e) {
-            return new VerificationResult(formatResult, validateResult, StepResult.NOT_VERIFIED, List.of(), null);
+            return new VerificationResult(VerificationResult.Strategy.TERRAFORM, formatResult, initResult, validateResult, StepResult.NOT_VERIFIED, List.of(), false, false, null);
         }
 
         List<Finding> newFindings = after.stream()
@@ -93,7 +94,7 @@ public class Verifier {
 
         StepResult rescanResult = (originalFindingsResolved && !newCriticalOrHigh) ? StepResult.PASS : StepResult.FAIL;
 
-        return new VerificationResult(formatResult, validateResult, rescanResult, newFindings, null);
+        return new VerificationResult(VerificationResult.Strategy.TERRAFORM, formatResult, initResult, validateResult, rescanResult, newFindings, originalFindingsResolved, newCriticalOrHigh, null);
     }
 
     private static boolean sameFinding(Finding a, Finding b) {

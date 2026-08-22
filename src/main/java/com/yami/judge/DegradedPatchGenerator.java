@@ -4,6 +4,7 @@ import com.yami.core.Decision;
 import com.yami.core.ProposedPatch;
 import com.yami.core.RiskContextPacket;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -44,21 +45,21 @@ public class DegradedPatchGenerator implements BedrockClient {
         String name = dot < 0 ? "" : resourceAddress.substring(dot + 1);
 
         if (!type.equals("aws_s3_bucket")) {
-            return new Decision(Decision.DecisionType.HUMAN_REVIEW, ruleId,
-                "degraded mode has no template for resource type \"" + type + "\"", null, null, false, true);
+            return new Decision(Decision.DecisionType.HUMAN_REVIEW, resourceAddress, null,
+                "degraded mode has no template for resource type \"" + type + "\"", 0.0, List.of(), true);
         }
 
         Optional<String> bucketName = findKnownBucketName(packet, resourceAddress);
         if (bucketName.isEmpty()) {
-            return new Decision(Decision.DecisionType.HUMAN_REVIEW, ruleId,
-                "degraded mode could not find a known bucket name for " + resourceAddress, null, null, false, true);
+            return new Decision(Decision.DecisionType.HUMAN_REVIEW, resourceAddress, null,
+                "degraded mode could not find a known bucket name for " + resourceAddress, 0.0, List.of(), true);
         }
 
         String replacementBlock = TEMPLATE.formatted(name, bucketName.get());
         String justification = "degraded mode: fixed S3 template adding versioning + KMS encryption";
         ProposedPatch patch = new ProposedPatch(resourceAddress, replacementBlock, justification);
 
-        return new Decision(Decision.DecisionType.SAFE_FIX, ruleId, justification, null, patch, true, true);
+        return new Decision(Decision.DecisionType.SAFE_FIX, resourceAddress, justification, justification, 0.5, List.of(), true);
     }
 
     private static Optional<String> findKnownBucketName(RiskContextPacket packet, String resourceAddress) {

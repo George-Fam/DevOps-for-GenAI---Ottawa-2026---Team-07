@@ -109,7 +109,7 @@ public class LiveBedrockClient implements BedrockClient {
             .orElse(null);
 
         if (toolUse == null) {
-            return humanReview(ruleId, "model did not return a tool call");
+            return humanReview(ruleId, resourceAddress, "model did not return a tool call");
         }
 
         Map<String, Document> input = toolUse.input().asMap();
@@ -125,11 +125,11 @@ public class LiveBedrockClient implements BedrockClient {
             && verificationRequiredDoc.asBoolean();
 
         if (outcomeStr == null || responseResourceAddress == null || reason == null) {
-            return humanReview(ruleId, "model response missing required fields");
+            return humanReview(ruleId, resourceAddress, "model response missing required fields");
         }
 
         if (!responseResourceAddress.equals(resourceAddress)) {
-            return humanReview(ruleId, "resourceAddress cross-check failed: model said \""
+            return humanReview(ruleId, resourceAddress, "resourceAddress cross-check failed: model said \""
                 + responseResourceAddress + "\", asked about \"" + resourceAddress + "\"");
         }
 
@@ -137,26 +137,28 @@ public class LiveBedrockClient implements BedrockClient {
         try {
             outcome = Decision.DecisionType.valueOf(outcomeStr);
         } catch (IllegalArgumentException e) {
-            return humanReview(ruleId, "model returned unknown outcome: " + outcomeStr);
+            return humanReview(ruleId, resourceAddress, "model returned unknown outcome: " + outcomeStr);
         }
 
         ProposedPatch patch = null;
         if (outcome == Decision.DecisionType.SAFE_FIX) {
             if (replacementBlock == null || replacementBlock.isBlank()) {
-                return humanReview(ruleId, "model claimed SAFE_FIX but returned no replacementBlock");
+                return humanReview(ruleId, resourceAddress, "model claimed SAFE_FIX but returned no replacementBlock");
             }
             patch = new ProposedPatch(responseResourceAddress, replacementBlock, reason);
         }
 
         try {
-            return new Decision(outcome, ruleId, reason, confidence, patch, verificationRequired, false);
+            double conf = confidence != null ? confidence : 0.0;
+            String intent = patch != null ? "legacy Bedrock patch for " + resourceAddress : null;
+            return new Decision(outcome, resourceAddress, intent, reason, conf, List.of(), false);
         } catch (IllegalArgumentException e) {
-            return humanReview(ruleId, "model response failed Decision validation: " + e.getMessage());
+            return humanReview(ruleId, resourceAddress, "model response failed Decision validation: " + e.getMessage());
         }
     }
 
-    private static Decision humanReview(String ruleId, String reason) {
-        return new Decision(Decision.DecisionType.HUMAN_REVIEW, ruleId, reason, null, null, true, false);
+    private static Decision humanReview(String ruleId, String resourceAddress, String reason) {
+        return new Decision(Decision.DecisionType.HUMAN_REVIEW, resourceAddress, null, reason, 0.0, List.of(), false);
     }
 
     private static String stringField(Map<String, Document> input, String key) {
