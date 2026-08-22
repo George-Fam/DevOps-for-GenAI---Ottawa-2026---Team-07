@@ -3,22 +3,40 @@ package com.yami.policy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.yami.core.Decision;
-import com.yami.core.Finding;
+import com.yami.core.RiskContextPacket;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * Deterministic gate applied to a resource's findings before anything reaches the Judge:
- * an explicit rule_id in human_review always wins, then the worst severity present decides
- * between BLOCK / HUMAN_REVIEW / SAFE_FIX. A finding whose severity isn't listed anywhere
- * in policies/yami.yml is treated as HUMAN_REVIEW rather than silently allowed through.
+ * Rule-ID + conditional-predicate policy engine. Findings from Checkov/CicdRules carry
+ * their own tool-specific ruleId (e.g. CKV_AWS_21, YAMI_CICD_4); {@link #categoryFor}
+ * maps those into Yami's own rule categories (CLOUD-001, CICD-001, ...) that
+ * policies/yami.yml is keyed by. This is the layer that decides *whether* SAFE_FIX is
+ * even possible for a rule category - the *content* of the fix still comes from Judge.
+ *
+ * <p>{@code safe_fix_when} condition names are evaluated against the packet by a small
+ * fixed registry in {@link #evaluateConditions} - only the two conditions named in the
+ * frozen policy example are implemented (no_cloudfront_relation, no_public_site_signal).
+ * An unrecognized condition name is treated as unsatisfied (safe default: can't confirm
+ * safety, don't allow SAFE_FIX).
  */
 public class PolicyEngine {
+
+    private static final Map<String, String> RULE_CATEGORY = Map.ofEntries(
+        Map.entry("CKV_AWS_21", "CLOUD-001"),
+        Map.entry("CKV_AWS_145", "CLOUD-001"),
+        Map.entry("CKV_AWS_18", "CLOUD-001"),
+        Map.entry("CKV2_AWS_61", "CLOUD-001"),
+        Map.entry("CKV2_AWS_62", "CLOUD-001"),
+        Map.entry("CKV_AWS_144", "CLOUD-001"),
+        Map.entry("YAMI_CICD_4", "CICD-001")
+    );
 
     private final PolicyConfig config;
 
@@ -31,35 +49,48 @@ public class PolicyEngine {
         }
     }
 
-    public Decision.Outcome classify(List<Finding> findings) {
-        if (findings.isEmpty()) {
-            throw new IllegalArgumentException("classify() requires at least one finding");
-        }
-
-        Set<String> humanReviewRuleIds = Set.copyOf(config.humanReview().ruleIds());
-        if (findings.stream().anyMatch(f -> humanReviewRuleIds.contains(f.ruleId()))) {
-            return Decision.Outcome.HUMAN_REVIEW;
-        }
-
-        Set<String> blockSeverities = severityNames(config.block().severities());
-        Set<String> humanReviewSeverities = severityNames(config.humanReview().severities());
-        Set<String> safeFixSeverities = severityNames(config.safeFix().severities());
-
-        boolean anyBlock = findings.stream().anyMatch(f -> blockSeverities.contains(f.severity().name()));
-        if (anyBlock) {
-            return Decision.Outcome.BLOCK;
-        }
-
-        boolean anyHumanReview = findings.stream().anyMatch(f -> humanReviewSeverities.contains(f.severity().name()));
-        if (anyHumanReview) {
-            return Decision.Outcome.HUMAN_REVIEW;
-        }
-
-        boolean allSafeFix = findings.stream().allMatch(f -> safeFixSeverities.contains(f.severity().name()));
-        return allSafeFix ? Decision.Outcome.SAFE_FIX : Decision.Outcome.HUMAN_REVIEW;
+    public String version() {
+        return config.version();
     }
 
-    private static Set<String> severityNames(List<String> severities) {
-        return Set.copyOf(severities);
+    public String categoryFor(String findingRuleId) {
+        return RULE_CATEGORY.getOrDefault(findingRuleId, "UNCATEGORIZED");
+    }
+
+    public Decision.DecisionType classify(String ruleCategory, RiskContextPacket packet, String resourceAddress) {
+        PolicyConfig.Rule rule = config.rules().get(ruleCategory);
+        if (rule == null) {
+            return Decision.DecisionType.HUMAN_REVIEW;
+        }
+
+        Decision.DecisionType defaultDecision = Decision.DecisionType.valueOf(rule.defaultDecision());
+        if (rule.safeFixWhen().isEmpty()) {
+            return defaultDecision;
+        }
+
+        Set<String> satisfied = evaluateConditions(packet, resourceAddress);
+        boolean allSatisfied = rule.safeFixWhen().stream().allMatch(satisfied::contains);
+        return allSatisfied ? Decision.DecisionType.SAFE_FIX : defaultDecision;
+    }
+
+    private Set<String> evaluateConditions(RiskContextPacket packet, String resourceAddress) {
+        Set<String> satisfied = new HashSet<>();
+        if (noCloudfrontRelation(packet, resourceAddress)) {
+            satisfied.add("no_cloudfront_relation");
+        }
+        if (noPublicSiteSignal(packet, resourceAddress)) {
+            satisfied.add("no_public_site_signal");
+        }
+        return satisfied;
+    }
+
+    private boolean noCloudfrontRelation(RiskContextPacket packet, String resourceAddress) {
+        return packet.terraformRelations().stream().noneMatch(r ->
+            r.contains("aws_cloudfront_distribution") && r.contains(resourceAddress));
+    }
+
+    private boolean noPublicSiteSignal(RiskContextPacket packet, String resourceAddress) {
+        return packet.known().stream().noneMatch(k ->
+            k.startsWith(resourceAddress) && (k.contains("website") || k.contains("index_document")));
     }
 }

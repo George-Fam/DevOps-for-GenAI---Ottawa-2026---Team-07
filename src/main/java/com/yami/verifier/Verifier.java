@@ -3,6 +3,7 @@ package com.yami.verifier;
 import com.yami.core.Finding;
 import com.yami.core.ProposedPatch;
 import com.yami.core.VerificationResult;
+import com.yami.core.VerificationResult.StepResult;
 import com.yami.scanner.CheckovAdapter;
 
 import java.io.IOException;
@@ -11,13 +12,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
  * Never trusts patch content before this runs: copies the repo to a disposable working
  * dir, splices in the block, then requires terraform fmt + validate + a clean re-scan
- * before anything is reported as passed. Any failure here is a rejection - the caller
- * escalates to human review, nothing gets written to the real repo.
+ * before anything is reported as passed. Progressive gating - each step only runs if the
+ * previous one passed, otherwise it's NOT_RUN rather than a false FAIL.
+ *
+ * <p>The re-scan step passes only if (a) every finding in {@code originalFindings} is
+ * actually gone, not just "no new finding appeared", and (b) no *new* HIGH or CRITICAL
+ * finding was introduced - a new LOW/MEDIUM finding doesn't block the patch. If Checkov
+ * itself fails mid-rescan (not "found findings", the subprocess erroring), that's
+ * NOT_VERIFIED, distinct from the patch actually failing the check.
  */
 public class Verifier {
 
@@ -29,7 +37,7 @@ public class Verifier {
         this.checkovAdapter = checkovAdapter;
     }
 
-    public VerificationResult verify(Path repoDir, Path relativeTerraformFile, ProposedPatch patch) {
+    public VerificationResult verify(Path repoDir, Path relativeTerraformFile, ProposedPatch patch, List<Finding> originalFindings) {
         Path workDir;
         try {
             workDir = Files.createTempDirectory("yami-verify-");
@@ -38,47 +46,58 @@ public class Verifier {
             throw new UncheckedIOException(e);
         }
 
-        List<Finding> before = checkovAdapter.scan(workDir);
+        List<Finding> before;
+        try {
+            before = checkovAdapter.scan(workDir);
+        } catch (RuntimeException e) {
+            return new VerificationResult(StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_VERIFIED, List.of(), null);
+        }
 
         Path targetFile = workDir.resolve(relativeTerraformFile);
         try {
             blockReplacer.replace(targetFile, patch.resourceAddress(), patch.replacementBlock());
         } catch (HclBlockReplacer.BlockNotFoundException | IllegalStateException e) {
-            return rejected(before, "block replacement failed: " + e.getMessage());
+            return new VerificationResult(StepResult.NOT_RUN, StepResult.NOT_RUN, StepResult.NOT_RUN, List.of(), null);
         }
 
-        int fmtExit = run(workDir, "terraform", "fmt", "-check=false");
-        boolean formatValid = fmtExit == 0;
-        if (!formatValid) {
-            return rejected(before, "terraform fmt failed with exit code " + fmtExit);
+        StepResult formatResult = run(workDir, "terraform", "fmt", "-check=false") == 0 ? StepResult.PASS : StepResult.FAIL;
+        if (formatResult != StepResult.PASS) {
+            return new VerificationResult(formatResult, StepResult.NOT_RUN, StepResult.NOT_RUN, List.of(), null);
         }
 
-        int initExit = run(workDir, "terraform", "init", "-input=false");
-        if (initExit != 0) {
-            return rejected(before, "terraform init failed with exit code " + initExit);
+        if (run(workDir, "terraform", "init", "-input=false") != 0) {
+            return new VerificationResult(formatResult, StepResult.FAIL, StepResult.NOT_RUN, List.of(), null);
         }
 
-        int validateExit = run(workDir, "terraform", "validate");
-        boolean validateValid = validateExit == 0;
-        if (!validateValid) {
-            return new VerificationResult(false, true, false, before, null,
-                "terraform validate failed with exit code " + validateExit);
+        StepResult validateResult = run(workDir, "terraform", "validate") == 0 ? StepResult.PASS : StepResult.FAIL;
+        if (validateResult != StepResult.PASS) {
+            return new VerificationResult(formatResult, validateResult, StepResult.NOT_RUN, List.of(), null);
         }
 
-        List<Finding> after = checkovAdapter.scan(workDir);
-        boolean noNewFindings = after.stream().noneMatch(f ->
-            before.stream().noneMatch(b -> b.ruleId().equals(f.ruleId()) && b.resourceAddress().equals(f.resourceAddress())));
-
-        if (!noNewFindings) {
-            return new VerificationResult(false, true, true, before, after,
-                "re-scan introduced a new finding not present before the patch");
+        List<Finding> after;
+        try {
+            after = checkovAdapter.scan(workDir);
+        } catch (RuntimeException e) {
+            return new VerificationResult(formatResult, validateResult, StepResult.NOT_VERIFIED, List.of(), null);
         }
 
-        return new VerificationResult(true, true, true, before, after, null);
+        List<Finding> newFindings = after.stream()
+            .filter(f -> before.stream().noneMatch(b -> sameFinding(b, f)))
+            .collect(Collectors.toList());
+
+        boolean originalFindingsResolved = originalFindings.stream()
+            .noneMatch(orig -> after.stream().anyMatch(f -> sameFinding(orig, f)));
+
+        boolean newCriticalOrHigh = newFindings.stream()
+            .anyMatch(f -> f.severity() == Finding.Severity.HIGH || f.severity() == Finding.Severity.CRITICAL);
+
+        StepResult rescanResult = (originalFindingsResolved && !newCriticalOrHigh) ? StepResult.PASS : StepResult.FAIL;
+
+        return new VerificationResult(formatResult, validateResult, rescanResult, newFindings, null);
     }
 
-    private VerificationResult rejected(List<Finding> before, String reason) {
-        return new VerificationResult(false, false, false, before, null, reason);
+    private static boolean sameFinding(Finding a, Finding b) {
+        return a.ruleId().equals(b.ruleId()) && a.resource().equals(b.resource());
     }
 
     private static void copyDirectory(Path source, Path target) throws IOException {

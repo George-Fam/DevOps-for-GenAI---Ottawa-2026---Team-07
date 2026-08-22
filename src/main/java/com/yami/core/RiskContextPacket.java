@@ -5,8 +5,13 @@ import java.util.Map;
 
 public record RiskContextPacket(
     String packetHash,
-    String resourceAddress,
     List<Finding> findings,
-    Map<String, String> knownFacts,
-    List<String> unknownFacts
+    List<String> changedFiles,
+    Map<String, String> beforeAfter,
+    List<String> terraformRelations,
+    List<String> deployingWorkflows,
+    List<String> known,
+    List<String> unknown,
+    List<String> allowedActions,
+    String policyVersion
 ) {}

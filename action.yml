@@ -1,13 +1,19 @@
-name: "Yami"
-description: "Governed infrastructure release agent - scans Terraform PRs, proposes verified remediations"
-runs:
-  using: "docker"
-  image: "Dockerfile"
+name: Yami
+description: Governed infrastructure release agent
+
 inputs:
-  github-token:
-    description: "Scoped GITHUB_TOKEN, used only to open remediation PRs / escalation comments"
+  policy:
     required: true
-  aws-region:
-    description: "AWS region for Bedrock"
-    required: false
-    default: "us-east-1"
+  mode:
+    required: true
+    default: live
+
+outputs:
+  decision:
+    description: SAFE_FIX, HUMAN_REVIEW or BLOCK
+  risk-score:
+    description: Calculated risk score
+
+runs:
+  using: docker
+  image: Dockerfile

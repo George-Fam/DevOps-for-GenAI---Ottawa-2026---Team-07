@@ -12,6 +12,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,19 +21,16 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Read-only, no network call. Builds a {@link RiskContextPacket} of extracted facts about
- * one resource - never the raw HCL text - so the Judge reasons over structured signal
- * instead of arbitrary repo content.
+ * Read-only, no network call. Builds one {@link RiskContextPacket} for the whole PR -
+ * every finding across every resource - so Judge reasons over the full change, not one
+ * resource in isolation. Never emits raw HCL text: {@code known}/{@code unknown} are
+ * extracted facts, not source content.
  *
- * <p>Uses hcl4j's evaluated Map output (not the Symbol/position API) since here we only
- * need attribute values, not a lossless round-trip - the opposite tradeoff from
- * {@link com.yami.verifier.HclBlockReplacer}, which deliberately avoids hcl4j for that
- * reason.
- *
- * <p>Because the fixtures target AWS provider v4+, S3 configuration (versioning,
- * encryption, logging, ...) lives in separate sibling resources rather than inline
- * attributes. "Unknown facts" here means: which of those sibling resources the findings
- * imply are needed, but aren't present in this file.
+ * <p>{@code changedFiles} and {@code beforeAfter} are PR-diff concerns Investigator can't
+ * derive from a plain directory scan on its own (no git history here) - they're accepted
+ * as input, computed by whatever reads the GitHub event/diff. Everything else
+ * (terraformRelations, deployingWorkflows, known/unknown facts, packetHash) is computed
+ * here from static analysis of the resulting tree.
  */
 public class Investigator {
 
@@ -45,48 +43,104 @@ public class Investigator {
         Map.entry("CKV_AWS_144", "aws_s3_bucket_replication_configuration")
     );
 
-    public RiskContextPacket buildPacket(String resourceAddress, List<Finding> findings, Path terraformDir) {
-        int dot = resourceAddress.indexOf('.');
-        if (dot < 0) {
-            throw new IllegalArgumentException("resourceAddress must be \"<type>.<name>\": " + resourceAddress);
-        }
-        String type = resourceAddress.substring(0, dot);
-        String name = resourceAddress.substring(dot + 1);
+    private static final List<String> ALLOWED_ACTIONS = List.of(
+        "open_remediation_pr", "escalate_human_review", "block");
+
+    public RiskContextPacket buildPacket(
+            Path repoRoot,
+            Path terraformDir,
+            List<Finding> findings,
+            List<String> changedFiles,
+            Map<String, String> beforeAfter,
+            String policyVersion) {
 
         Map<String, Object> resourceSection = asMap(parseAll(terraformDir).get("resource"));
-        Map<String, Object> typeBlock = asMap(resourceSection.get(type));
-        if (typeBlock == null || !typeBlock.containsKey(name)) {
-            throw new IllegalArgumentException("no resource block for \"" + resourceAddress + "\" found under " + terraformDir);
-        }
-        Map<String, Object> attrs = asMap(typeBlock.get(name));
 
-        Map<String, String> knownFacts = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> e : attrs.entrySet()) {
-            if (!(e.getValue() instanceof Map)) {
-                knownFacts.put(e.getKey(), String.valueOf(e.getValue()));
-            }
-        }
+        List<String> terraformRelations = findAllRelations(resourceSection);
+        List<String> deployingWorkflows = findDeployingWorkflows(repoRoot);
+        List<String> known = new ArrayList<>();
+        List<String> unknown = new ArrayList<>();
+        buildKnownAndUnknown(resourceSection, findings, known, unknown);
 
-        Set<String> referencingResources = findReferencingResources(resourceSection, resourceAddress);
-        if (!referencingResources.isEmpty()) {
-            knownFacts.put("referencedBy", String.join(",", new TreeSet<>(referencingResources)));
-        }
+        String packetHash = hash(findings, changedFiles, beforeAfter, terraformRelations,
+            deployingWorkflows, known, unknown, policyVersion);
 
-        List<String> unknownFacts = new ArrayList<>();
-        for (Finding f : findings) {
-            String expectedSibling = EXPECTED_SIBLING_FOR_RULE.get(f.ruleId());
-            if (expectedSibling == null) {
+        return new RiskContextPacket(packetHash, findings, changedFiles, beforeAfter,
+            terraformRelations, deployingWorkflows, known, unknown, ALLOWED_ACTIONS, policyVersion);
+    }
+
+    private void buildKnownAndUnknown(Map<String, Object> resourceSection, List<Finding> findings,
+                                       List<String> known, List<String> unknown) {
+        Set<String> resourceAddresses = findings.stream().map(Finding::resource).collect(Collectors.toCollection(LinkedHashSet::new));
+
+        for (String resourceAddress : resourceAddresses) {
+            int dot = resourceAddress.indexOf('.');
+            if (dot < 0) {
                 continue;
             }
-            boolean siblingPresent = referencingResources.stream().anyMatch(r -> r.startsWith(expectedSibling + "."));
-            if (!siblingPresent) {
-                unknownFacts.add("no " + expectedSibling + " configured for " + resourceAddress
-                    + " (needed to resolve " + f.ruleId() + ")");
+            String type = resourceAddress.substring(0, dot);
+            String name = resourceAddress.substring(dot + 1);
+            Map<String, Object> attrs = asMap(asMap(resourceSection.get(type)).get(name));
+
+            for (Map.Entry<String, Object> e : attrs.entrySet()) {
+                if (!(e.getValue() instanceof Map)) {
+                    known.add(resourceAddress + "." + e.getKey() + " = " + e.getValue());
+                }
+            }
+
+            Set<String> referencing = findReferencingResources(resourceSection, resourceAddress);
+            for (String ref : referencing) {
+                known.add(ref + " references " + resourceAddress);
+            }
+
+            for (Finding f : findings) {
+                if (!f.resource().equals(resourceAddress)) {
+                    continue;
+                }
+                String expectedSibling = EXPECTED_SIBLING_FOR_RULE.get(f.ruleId());
+                if (expectedSibling == null) {
+                    continue;
+                }
+                boolean siblingPresent = referencing.stream().anyMatch(r -> r.startsWith(expectedSibling + "."));
+                if (!siblingPresent) {
+                    unknown.add("no " + expectedSibling + " configured for " + resourceAddress
+                        + " (needed to resolve " + f.ruleId() + ")");
+                }
             }
         }
+    }
 
-        String packetHash = hash(resourceAddress, findings, knownFacts, unknownFacts);
-        return new RiskContextPacket(packetHash, resourceAddress, findings, knownFacts, unknownFacts);
+    private List<String> findAllRelations(Map<String, Object> resourceSection) {
+        List<String> relations = new ArrayList<>();
+        for (Map.Entry<String, Object> typeEntry : resourceSection.entrySet()) {
+            for (Map.Entry<String, Object> nameEntry : asMap(typeEntry.getValue()).entrySet()) {
+                String address = typeEntry.getKey() + "." + nameEntry.getKey();
+                Set<String> referencing = findReferencingResources(resourceSection, address);
+                for (String ref : referencing) {
+                    relations.add(ref + " -> " + address);
+                }
+            }
+        }
+        return relations;
+    }
+
+    private List<String> findDeployingWorkflows(Path repoRoot) {
+        Path workflowsDir = repoRoot.resolve(".github").resolve("workflows");
+        if (!Files.isDirectory(workflowsDir)) {
+            return List.of();
+        }
+        List<String> deploying = new ArrayList<>();
+        try (Stream<Path> paths = Files.list(workflowsDir)) {
+            for (Path file : (Iterable<Path>) paths.filter(p -> p.toString().endsWith(".yml") || p.toString().endsWith(".yaml"))::iterator) {
+                String content = Files.readString(file);
+                if (content.contains("terraform apply") || content.contains("terraform plan")) {
+                    deploying.add(workflowsDir.relativize(file).toString());
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return deploying;
     }
 
     private Map<String, Object> parseAll(Path terraformDir) {
@@ -150,15 +204,25 @@ public class Investigator {
         return o instanceof Map ? (Map<String, Object>) o : Map.of();
     }
 
-    private static String hash(String resourceAddress, List<Finding> findings, Map<String, String> knownFacts, List<String> unknownFacts) {
-        StringBuilder canonical = new StringBuilder(resourceAddress).append('|');
-        findings.stream().map(Finding::id).sorted().forEach(id -> canonical.append(id).append(','));
+    private static String hash(List<Finding> findings, List<String> changedFiles, Map<String, String> beforeAfter,
+                                List<String> terraformRelations, List<String> deployingWorkflows,
+                                List<String> known, List<String> unknown, String policyVersion) {
+        StringBuilder canonical = new StringBuilder();
+        findings.stream().map(f -> f.ruleId() + ":" + f.resource()).sorted().forEach(s -> canonical.append(s).append(','));
         canonical.append('|');
-        knownFacts.entrySet().stream()
-            .sorted(Map.Entry.comparingByKey())
+        changedFiles.stream().sorted().forEach(s -> canonical.append(s).append(','));
+        canonical.append('|');
+        beforeAfter.entrySet().stream().sorted(Map.Entry.comparingByKey())
             .forEach(e -> canonical.append(e.getKey()).append('=').append(e.getValue()).append(','));
         canonical.append('|');
-        unknownFacts.stream().sorted().forEach(f -> canonical.append(f).append(','));
+        terraformRelations.stream().sorted().forEach(s -> canonical.append(s).append(','));
+        canonical.append('|');
+        deployingWorkflows.stream().sorted().forEach(s -> canonical.append(s).append(','));
+        canonical.append('|');
+        known.stream().sorted().forEach(s -> canonical.append(s).append(','));
+        canonical.append('|');
+        unknown.stream().sorted().forEach(s -> canonical.append(s).append(','));
+        canonical.append('|').append(policyVersion);
 
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.toString().getBytes());

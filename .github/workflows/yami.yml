@@ -1,20 +1,19 @@
-name: Yami
+name: Yami Security Gate
 
 on:
   pull_request:
-    paths:
-      - "**.tf"
+    types: [opened, synchronize]
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  scan:
+  yami:
     runs-on: ubuntu-latest
     steps:
-      # pin to a commit SHA before the hackathon ends - see Definition of Done
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: ./
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          policy: policies/yami.yml
+          mode: live

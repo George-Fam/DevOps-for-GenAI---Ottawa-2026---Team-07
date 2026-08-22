@@ -1,6 +1,9 @@
 package com.yami.scanner;
 
 import com.bertramlabs.plugins.hcl4j.HCLParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.yami.core.Finding;
 
 import java.io.IOException;
@@ -15,24 +18,29 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Hand-written checks for pipeline/state-level risk that Checkov's resource-attribute
- * scanning doesn't cover: does this config behave safely when applied repeatedly and
- * concurrently by CI, not just "is this one resource configured securely."
+ * Hand-written checks Checkov's resource-attribute scanning doesn't cover: pipeline/state
+ * risk (does this config behave safely when applied repeatedly and concurrently by CI) and
+ * GitHub workflow-file risk (does this workflow hand a forked PR write access or secrets).
  *
- * <p>Same hcl4j evaluated-Map approach as {@link com.yami.investigator.Investigator} -
- * these checks read attribute values, not source positions, so findings here don't carry
- * line ranges (unlike CheckovAdapter's, which come from checkov's own line tracking).
+ * <p>Terraform checks use the same hcl4j evaluated-Map approach as
+ * {@link com.yami.investigator.Investigator} - findings from those checks don't carry line
+ * ranges (unlike CheckovAdapter's, which come from checkov's own line tracking). The
+ * workflow-file check (YAMI_CICD_4 / CICD-001) does carry line -1 too, for the same reason.
  */
 public class CicdRules {
 
     private static final List<String> IDENTITY_ATTRIBUTE_NAMES = List.of("bucket", "name");
     private static final List<String> INTERPOLATION_MARKERS = List.of("var.", "local.", "terraform.workspace", "data.", "random_");
 
-    public List<Finding> evaluate(Path terraformDir) {
-        return evaluate(parseAll(terraformDir));
+    private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+
+    public List<Finding> evaluate(Path repoRoot) {
+        List<Finding> findings = new ArrayList<>(evaluateTerraform(parseAll(repoRoot)));
+        findings.addAll(checkWorkflowFiles(repoRoot));
+        return findings;
     }
 
-    List<Finding> evaluate(Map<String, Object> parsed) {
+    List<Finding> evaluateTerraform(Map<String, Object> parsed) {
         List<Finding> findings = new ArrayList<>();
         Map<String, Object> terraformBlock = asMap(parsed.get("terraform"));
         Map<String, Object> resourceSection = asMap(parsed.get("resource"));
@@ -45,12 +53,12 @@ public class CicdRules {
     }
 
     private void checkRemoteBackend(Map<String, Object> terraformBlock, List<Finding> findings) {
-        if (!asMap(terraformBlock.get("backend")).keySet().stream().findAny().isPresent()) {
+        if (asMap(terraformBlock.get("backend")).isEmpty()) {
             findings.add(new Finding(
-                "YAMI_CICD_1", Finding.Source.CICD_RULE, "YAMI_CICD_1", Finding.Severity.HIGH,
-                "terraform.backend", "", -1, -1,
+                "YAMI_CICD_1", Finding.Severity.HIGH, "", -1, "terraform.backend",
                 "No remote backend configured - state will be written to the CI runner's local "
-                + "disk and lost (or corrupted by a concurrent run) between pipeline executions"));
+                + "disk and lost (or corrupted by a concurrent run) between pipeline executions",
+                Finding.FindingSource.CICD_RULES));
         }
     }
 
@@ -63,11 +71,11 @@ public class CicdRules {
             String versionStr = version == null ? "" : String.valueOf(version).trim();
             if (versionStr.isEmpty() || versionStr.equals("*")) {
                 findings.add(new Finding(
-                    "YAMI_CICD_2:" + provider, Finding.Source.CICD_RULE, "YAMI_CICD_2", Finding.Severity.MEDIUM,
-                    "terraform.required_providers." + provider, "", -1, -1,
+                    "YAMI_CICD_2", Finding.Severity.MEDIUM, "", -1, "terraform.required_providers." + provider,
                     "Provider \"" + provider + "\" has no pinned version constraint - CI runs are "
                     + "not reproducible across time, a provider release can change plan/apply "
-                    + "behavior without any change to this repo"));
+                    + "behavior without any change to this repo",
+                    Finding.FindingSource.CICD_RULES));
             }
         }
     }
@@ -82,17 +90,98 @@ public class CicdRules {
                     Object value = attrs.get(identityAttr);
                     if (isHardcodedLiteral(value)) {
                         findings.add(new Finding(
-                            "YAMI_CICD_3:" + type + "." + name + "." + identityAttr,
-                            Finding.Source.CICD_RULE, "YAMI_CICD_3", Finding.Severity.MEDIUM,
-                            type + "." + name, "", -1, -1,
+                            "YAMI_CICD_3", Finding.Severity.MEDIUM, "", -1, type + "." + name,
                             "\"" + identityAttr + "\" on " + type + "." + name + " is a hardcoded "
                             + "literal (\"" + value + "\") with no environment/workspace "
                             + "differentiation - running this config through more than one CI "
-                            + "stage (dev/staging/prod) will collide on the same name"));
+                            + "stage (dev/staging/prod) will collide on the same name",
+                            Finding.FindingSource.CICD_RULES));
                     }
                 }
             }
         }
+    }
+
+    /**
+     * CICD-001: pull_request_target with untrusted checkout and secrets in scope. The
+     * dangerous combination is: (1) trigger is pull_request_target, which runs with the
+     * base repo's permissions and secrets even for a forked PR; (2) a checkout step pins
+     * ref to the PR head instead of the default base-branch checkout; (3) secrets are
+     * referenced anywhere in the workflow. Together, a forked PR's code runs with the base
+     * repo's secrets and write permissions.
+     */
+    private List<Finding> checkWorkflowFiles(Path repoRoot) {
+        Path workflowsDir = repoRoot.resolve(".github").resolve("workflows");
+        if (!Files.isDirectory(workflowsDir)) {
+            return List.of();
+        }
+
+        List<Path> files;
+        try (Stream<Path> paths = Files.list(workflowsDir)) {
+            files = paths.filter(p -> p.toString().endsWith(".yml") || p.toString().endsWith(".yaml"))
+                .sorted().collect(Collectors.toList());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        List<Finding> findings = new ArrayList<>();
+        for (Path file : files) {
+            String content;
+            JsonNode root;
+            try {
+                content = Files.readString(file);
+                root = yamlMapper.readTree(content);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+
+            boolean pullRequestTarget = triggersOnPullRequestTarget(root);
+            boolean untrustedCheckout = hasUntrustedCheckout(root);
+            boolean usesSecrets = content.contains("secrets.");
+
+            if (pullRequestTarget && untrustedCheckout && usesSecrets) {
+                String workflowName = file.getFileName().toString().replaceFirst("\\.ya?ml$", "");
+                findings.add(new Finding(
+                    "YAMI_CICD_4", Finding.Severity.CRITICAL,
+                    workflowsDir.relativize(file).toString(), -1, "workflow." + workflowName,
+                    "pull_request_target trigger checks out untrusted PR head content while secrets "
+                    + "are in scope - a forked PR can exfiltrate secrets or run arbitrary code with "
+                    + "the base repo's write permissions",
+                    Finding.FindingSource.CICD_RULES));
+            }
+        }
+        return findings;
+    }
+
+    private static boolean triggersOnPullRequestTarget(JsonNode root) {
+        JsonNode on = root.path("on");
+        if (on.isTextual()) {
+            return on.asText().equals("pull_request_target");
+        }
+        if (on.isArray()) {
+            for (JsonNode n : on) {
+                if (n.isTextual() && n.asText().equals("pull_request_target")) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return on.isObject() && on.has("pull_request_target");
+    }
+
+    private static boolean hasUntrustedCheckout(JsonNode root) {
+        for (JsonNode job : root.path("jobs")) {
+            for (JsonNode step : job.path("steps")) {
+                String uses = step.path("uses").asText("");
+                if (uses.contains("actions/checkout")) {
+                    String ref = step.path("with").path("ref").asText("");
+                    if (ref.contains("head")) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean isHardcodedLiteral(Object value) {

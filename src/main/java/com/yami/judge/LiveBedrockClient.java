@@ -1,7 +1,7 @@
 package com.yami.judge;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yami.core.Decision;
-import com.yami.core.Finding;
 import com.yami.core.ProposedPatch;
 import com.yami.core.RiskContextPacket;
 import software.amazon.awssdk.core.document.Document;
@@ -25,11 +25,12 @@ import java.util.Map;
 
 /**
  * The single outbound network call in the whole pipeline. Sends the Investigator's
- * {@link RiskContextPacket} (structured facts only, never raw file content) and forces a
- * tool call so the response is schema-shaped JSON, not free text to parse. Never trusts
- * the model's resourceAddress claim - it's cross-checked against the packet before the
- * Decision is allowed to leave this class, and any schema violation degrades to
- * HUMAN_REVIEW rather than throwing and killing the pipeline.
+ * {@link RiskContextPacket} (structured facts only, never raw file content) plus which
+ * specific resource/rule category this decision is about, and forces a tool call so the
+ * response is schema-shaped JSON, not free text to parse. Never trusts the model's
+ * resourceAddress claim - it's cross-checked before the Decision is allowed to leave this
+ * class, and ruleId is always set from the input, never trusted from the model. Any
+ * schema violation degrades to HUMAN_REVIEW rather than throwing and killing the pipeline.
  */
 public class LiveBedrockClient implements BedrockClient {
 
@@ -38,10 +39,10 @@ public class LiveBedrockClient implements BedrockClient {
     private static final String SYSTEM_PROMPT = """
         You are Yami's Judge: a governance step for automated Terraform remediation.
 
-        You receive a RiskContextPacket describing ONE Terraform resource: its policy
-        findings, known facts extracted from the resource block, and unknown facts (gaps
-        the deterministic scan could not resolve, e.g. a required sibling resource like
-        aws_s3_bucket_versioning that does not exist yet).
+        You receive a RiskContextPacket describing the whole PR: findings, known and
+        unknown facts, Terraform resource relations, and deploying workflows. You are
+        asked to decide for ONE specific resource and rule category within that packet -
+        use the rest of the packet only as context.
 
         Decide one outcome:
         - SAFE_FIX: only when you are confident the fix is mechanical and well-understood
@@ -54,15 +55,17 @@ public class LiveBedrockClient implements BedrockClient {
         - BLOCK: the finding represents a severe, likely-intentional risk that should not be
           auto-remediated at all (e.g. public access deliberately configured).
 
-        resourceAddress in your response MUST exactly equal the resourceAddress given to you.
-        Never propose changes to a resource you were not asked about.
+        resourceAddress in your response MUST exactly equal the resourceAddress you were
+        asked about. Never propose changes to a resource you were not asked about.
+        confidence is a number from 0.0 to 1.0 reflecting how sure you are in this decision.
         """;
 
     private final BedrockRuntimeClient client;
     private final String modelId;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public LiveBedrockClient(BedrockRuntimeClient client) {
-        this(client, "anthropic.claude-haiku-4-5-20251001-v1:0");
+        this(client, "us.anthropic.claude-haiku-4-5-20251001-v1:0");
     }
 
     public LiveBedrockClient(BedrockRuntimeClient client, String modelId) {
@@ -71,18 +74,21 @@ public class LiveBedrockClient implements BedrockClient {
     }
 
     @Override
-    public Decision invoke(RiskContextPacket packet) {
-        ConverseResponse response = client.converse(buildRequest(packet));
-        return parseResponse(packet, response);
+    public Decision invoke(RiskContextPacket packet, String ruleId, String resourceAddress) {
+        ConverseResponse response = client.converse(buildRequest(packet, ruleId, resourceAddress));
+        return parseResponse(ruleId, resourceAddress, response);
     }
 
-    ConverseRequest buildRequest(RiskContextPacket packet) {
+    ConverseRequest buildRequest(RiskContextPacket packet, String ruleId, String resourceAddress) {
+        String userMessage = "ruleId=" + ruleId + " resourceAddress=" + resourceAddress
+            + "\npacket=" + packetToJson(packet);
+
         return ConverseRequest.builder()
             .modelId(modelId)
             .system(SystemContentBlock.builder().text(SYSTEM_PROMPT).build())
             .messages(Message.builder()
                 .role(ConversationRole.USER)
-                .content(ContentBlock.fromText(packetToJson(packet)))
+                .content(ContentBlock.fromText(userMessage))
                 .build())
             .toolConfig(ToolConfiguration.builder()
                 .tools(Tool.builder().toolSpec(ToolSpecification.builder()
@@ -95,7 +101,7 @@ public class LiveBedrockClient implements BedrockClient {
             .build();
     }
 
-    Decision parseResponse(RiskContextPacket packet, ConverseResponse response) {
+    Decision parseResponse(String ruleId, String resourceAddress, ConverseResponse response) {
         ToolUseBlock toolUse = response.output().message().content().stream()
             .map(ContentBlock::toolUse)
             .filter(t -> t != null)
@@ -103,49 +109,54 @@ public class LiveBedrockClient implements BedrockClient {
             .orElse(null);
 
         if (toolUse == null) {
-            return humanReview(packet, "model did not return a tool call");
+            return humanReview(ruleId, "model did not return a tool call");
         }
 
         Map<String, Document> input = toolUse.input().asMap();
 
         String outcomeStr = stringField(input, "outcome");
-        String resourceAddress = stringField(input, "resourceAddress");
+        String responseResourceAddress = stringField(input, "resourceAddress");
         String replacementBlock = stringField(input, "replacementBlock");
-        String rationale = stringField(input, "rationale");
+        String reason = stringField(input, "reason");
+        Document confidenceDoc = input.get("confidence");
+        Double confidence = confidenceDoc == null || confidenceDoc.isNull() ? null : confidenceDoc.asNumber().doubleValue();
+        Document verificationRequiredDoc = input.get("verificationRequired");
+        boolean verificationRequired = verificationRequiredDoc != null && !verificationRequiredDoc.isNull()
+            && verificationRequiredDoc.asBoolean();
 
-        if (outcomeStr == null || resourceAddress == null || rationale == null) {
-            return humanReview(packet, "model response missing required fields");
+        if (outcomeStr == null || responseResourceAddress == null || reason == null) {
+            return humanReview(ruleId, "model response missing required fields");
         }
 
-        if (!resourceAddress.equals(packet.resourceAddress())) {
-            return humanReview(packet, "resourceAddress cross-check failed: model said \""
-                + resourceAddress + "\", packet was for \"" + packet.resourceAddress() + "\"");
+        if (!responseResourceAddress.equals(resourceAddress)) {
+            return humanReview(ruleId, "resourceAddress cross-check failed: model said \""
+                + responseResourceAddress + "\", asked about \"" + resourceAddress + "\"");
         }
 
-        Decision.Outcome outcome;
+        Decision.DecisionType outcome;
         try {
-            outcome = Decision.Outcome.valueOf(outcomeStr);
+            outcome = Decision.DecisionType.valueOf(outcomeStr);
         } catch (IllegalArgumentException e) {
-            return humanReview(packet, "model returned unknown outcome: " + outcomeStr);
+            return humanReview(ruleId, "model returned unknown outcome: " + outcomeStr);
         }
 
         ProposedPatch patch = null;
-        if (outcome == Decision.Outcome.SAFE_FIX) {
+        if (outcome == Decision.DecisionType.SAFE_FIX) {
             if (replacementBlock == null || replacementBlock.isBlank()) {
-                return humanReview(packet, "model claimed SAFE_FIX but returned no replacementBlock");
+                return humanReview(ruleId, "model claimed SAFE_FIX but returned no replacementBlock");
             }
-            patch = new ProposedPatch(resourceAddress, replacementBlock, rationale);
+            patch = new ProposedPatch(responseResourceAddress, replacementBlock, reason);
         }
 
         try {
-            return new Decision(outcome, packet.packetHash(), patch, rationale, false);
+            return new Decision(outcome, ruleId, reason, confidence, patch, verificationRequired, false);
         } catch (IllegalArgumentException e) {
-            return humanReview(packet, "model response failed Decision validation: " + e.getMessage());
+            return humanReview(ruleId, "model response failed Decision validation: " + e.getMessage());
         }
     }
 
-    private static Decision humanReview(RiskContextPacket packet, String reason) {
-        return new Decision(Decision.Outcome.HUMAN_REVIEW, packet.packetHash(), null, reason, false);
+    private static Decision humanReview(String ruleId, String reason) {
+        return new Decision(Decision.DecisionType.HUMAN_REVIEW, ruleId, reason, null, null, true, false);
     }
 
     private static String stringField(Map<String, Document> input, String key) {
@@ -153,36 +164,12 @@ public class LiveBedrockClient implements BedrockClient {
         return doc == null || doc.isNull() ? null : doc.asString();
     }
 
-    private static String packetToJson(RiskContextPacket packet) {
-        StringBuilder json = new StringBuilder("{");
-        json.append("\"resourceAddress\":\"").append(escape(packet.resourceAddress())).append("\",");
-        json.append("\"findings\":[");
-        List<Finding> findings = packet.findings();
-        for (int i = 0; i < findings.size(); i++) {
-            Finding f = findings.get(i);
-            if (i > 0) json.append(",");
-            json.append("{\"ruleId\":\"").append(escape(f.ruleId())).append("\",")
-                .append("\"severity\":\"").append(f.severity()).append("\",")
-                .append("\"description\":\"").append(escape(f.description())).append("\"}");
+    private String packetToJson(RiskContextPacket packet) {
+        try {
+            return mapper.writeValueAsString(packet);
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to serialize packet", e);
         }
-        json.append("],\"knownFacts\":{");
-        boolean first = true;
-        for (Map.Entry<String, String> e : packet.knownFacts().entrySet()) {
-            if (!first) json.append(",");
-            first = false;
-            json.append("\"").append(escape(e.getKey())).append("\":\"").append(escape(e.getValue())).append("\"");
-        }
-        json.append("},\"unknownFacts\":[");
-        for (int i = 0; i < packet.unknownFacts().size(); i++) {
-            if (i > 0) json.append(",");
-            json.append("\"").append(escape(packet.unknownFacts().get(i))).append("\"");
-        }
-        json.append("]}");
-        return json.toString();
-    }
-
-    private static String escape(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
     }
 
     private static Document decisionSchema() {
@@ -199,11 +186,15 @@ public class LiveBedrockClient implements BedrockClient {
                 .putMap("replacementBlock", m -> m
                     .putString("type", "string")
                     .putString("description", "Complete replacement HCL resource block(s). Required when outcome is SAFE_FIX."))
-                .putMap("rationale", m -> m.putString("type", "string")))
+                .putMap("reason", m -> m.putString("type", "string"))
+                .putMap("confidence", m -> m
+                    .putString("type", "number")
+                    .putString("description", "0.0 to 1.0"))
+                .putMap("verificationRequired", m -> m.putString("type", "boolean")))
             .putList("required", List.of(
                 Document.fromString("outcome"),
                 Document.fromString("resourceAddress"),
-                Document.fromString("rationale")))
+                Document.fromString("reason")))
             .build();
     }
 }

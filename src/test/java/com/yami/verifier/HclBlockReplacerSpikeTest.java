@@ -42,8 +42,8 @@ class HclBlockReplacerSpikeTest {
 
     @Test
     void replacementBlockPassesTerraformValidate(@org.junit.jupiter.api.io.TempDir Path tempDir) throws IOException, InterruptedException {
-        Path fixtureSrc = Path.of("fixtures/safe-fix/main.tf");
-        Path workDir = tempDir.resolve("safe-fix");
+        Path fixtureSrc = Path.of("fixtures/safe_fix/main.tf");
+        Path workDir = tempDir.resolve("safe_fix");
         Files.createDirectories(workDir);
         Path main = workDir.resolve("main.tf");
         Files.copy(fixtureSrc, main, StandardCopyOption.REPLACE_EXISTING);

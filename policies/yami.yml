@@ -1,11 +1,11 @@
-# PolicyEngine input. Deterministic gate - no LLM involved in reaching these thresholds.
-block:
-  severities: [CRITICAL]
-
-human_review:
-  severities: [HIGH]
-  # findings whose rule_id appears here always route to human review, regardless of severity
-  rule_ids: []
-
-safe_fix:
-  severities: [MEDIUM, LOW]
+version: v4
+rules:
+  CLOUD-001:
+    description: Public/under-protected cloud resource (e.g. S3 bucket missing versioning, encryption, or access controls)
+    default_decision: HUMAN_REVIEW
+    safe_fix_when:
+      - no_cloudfront_relation
+      - no_public_site_signal
+  CICD-001:
+    description: pull_request_target with untrusted checkout and secrets in scope
+    default_decision: BLOCK

@@ -1,16 +1,14 @@
 package com.yami.core;
 
 public record Finding(
-    String id,
-    Source source,
     String ruleId,
     Severity severity,
-    String resourceAddress,
-    String filePath,
-    int startLine,
-    int endLine,
-    String description
+    String file,
+    int line,
+    String resource,
+    String message,
+    FindingSource source
 ) {
-    public enum Source { CHECKOV, CICD_RULE }
     public enum Severity { LOW, MEDIUM, HIGH, CRITICAL }
+    public enum FindingSource { CHECKOV, CICD_RULES }
 }

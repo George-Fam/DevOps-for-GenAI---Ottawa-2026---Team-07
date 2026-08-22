@@ -3,19 +3,19 @@ package com.yami.policy;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
+import java.util.Map;
 
 record PolicyConfig(
-    Rule block,
-    @JsonProperty("human_review") Rule humanReview,
-    @JsonProperty("safe_fix") Rule safeFix
+    String version,
+    Map<String, Rule> rules
 ) {
     record Rule(
-        List<String> severities,
-        @JsonProperty("rule_ids") List<String> ruleIds
+        String description,
+        @JsonProperty("default_decision") String defaultDecision,
+        @JsonProperty("safe_fix_when") List<String> safeFixWhen
     ) {
         Rule {
-            severities = severities == null ? List.of() : severities;
-            ruleIds = ruleIds == null ? List.of() : ruleIds;
+            safeFixWhen = safeFixWhen == null ? List.of() : safeFixWhen;
         }
     }
 }

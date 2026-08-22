@@ -21,12 +21,13 @@ import java.util.Map;
 public class CheckovAdapter {
 
     private static final Map<String, Finding.Severity> SEVERITY_OVERRIDES = Map.of(
-        "CKV_AWS_21", Finding.Severity.HIGH,    // versioning
-        "CKV_AWS_145", Finding.Severity.HIGH,   // KMS encryption
-        "CKV_AWS_18", Finding.Severity.MEDIUM,  // access logging
-        "CKV_AWS_144", Finding.Severity.LOW,    // cross-region replication
-        "CKV2_AWS_61", Finding.Severity.LOW,    // lifecycle configuration
-        "CKV2_AWS_62", Finding.Severity.LOW     // event notifications
+        "CKV_AWS_21", Finding.Severity.HIGH,      // versioning
+        "CKV_AWS_145", Finding.Severity.HIGH,     // KMS encryption
+        "CKV_AWS_18", Finding.Severity.MEDIUM,    // access logging
+        "CKV_AWS_144", Finding.Severity.LOW,      // cross-region replication
+        "CKV2_AWS_61", Finding.Severity.LOW,      // lifecycle configuration
+        "CKV2_AWS_62", Finding.Severity.LOW,      // event notifications
+        "CKV_AWS_70", Finding.Severity.CRITICAL   // bucket policy allows any principal
     );
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -90,13 +91,11 @@ public class CheckovAdapter {
         String resourceAddress = check.path("resource").asText();
         String filePath = check.path("file_path").asText();
         JsonNode range = check.path("file_line_range");
-        int startLine = range.isArray() && range.size() > 0 ? range.get(0).asInt() : -1;
-        int endLine = range.isArray() && range.size() > 1 ? range.get(1).asInt() : -1;
+        int line = range.isArray() && range.size() > 0 ? range.get(0).asInt() : -1;
         String description = check.path("check_name").asText();
 
         Finding.Severity severity = SEVERITY_OVERRIDES.getOrDefault(checkId, Finding.Severity.MEDIUM);
 
-        return new Finding(checkId, Finding.Source.CHECKOV, checkId, severity,
-            resourceAddress, filePath, startLine, endLine, description);
+        return new Finding(checkId, severity, filePath, line, resourceAddress, description, Finding.FindingSource.CHECKOV);
     }
 }
