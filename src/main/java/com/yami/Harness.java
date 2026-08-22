@@ -190,8 +190,14 @@ public class Harness {
                 try {
                     processFinding(finding, packet);
                 } catch (Exception e) {
-                    System.err.println("[Harness] Error processing finding " + finding.ruleId() + ": " + e.getMessage());
-                    githubAdapter.escalateToHumanReview("Error processing finding " + finding.ruleId() + ": " + e.getMessage());
+                    String detail = "Error processing finding " + finding.ruleId() + ": " + e.getMessage();
+                    String logTail = replayMode ? "" : tailOpenCodeServeLog();
+                    System.err.println("[Harness] " + detail);
+                    if (!logTail.isEmpty()) {
+                        System.err.println("[Harness] last opencode-serve.log lines:\n" + logTail);
+                    }
+                    githubAdapter.escalateToHumanReview(logTail.isEmpty() ? detail
+                        : detail + "\n\nLast opencode-serve.log lines:\n```\n" + logTail + "\n```");
                     failureCount++;
                 }
             }
@@ -208,6 +214,23 @@ public class Harness {
             if (!replayMode) {
                 openCodeServer.stop();
             }
+        }
+    }
+
+    /**
+     * Best-effort tail of opencode-serve.log for surfacing in failure diagnostics -
+     * this is where the actual provider/model error (bad model ARN, missing IAM
+     * permission, Bedrock throttling) lands, since opencode swallows it behind a
+     * bare client-side timeout otherwise (see issue #43).
+     */
+    private String tailOpenCodeServeLog() {
+        Path serverLog = auditDir.resolve("opencode-serve.log");
+        try {
+            List<String> lines = Files.readAllLines(serverLog);
+            int from = Math.max(0, lines.size() - 40);
+            return String.join("\n", lines.subList(from, lines.size()));
+        } catch (IOException e) {
+            return "";
         }
     }
 

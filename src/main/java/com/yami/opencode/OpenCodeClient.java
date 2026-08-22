@@ -72,12 +72,24 @@ public class OpenCodeClient {
      * (record ou replay), sinon appelle directement le serveur OpenCode.
      */
     private ReplayHttpShim.SimpleResponse execute(HttpRequest request) {
+        java.time.Instant start = java.time.Instant.now();
         try {
             if (shim != null) {
                 return shim.send(httpClient, request);
             }
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             return new ReplayHttpShim.SimpleResponse(response.statusCode(), response.body());
+        } catch (java.net.http.HttpTimeoutException e) {
+            // The client timeout firing only tells us opencode serve never responded in
+            // time - not why. The real cause (model access denied, IAM missing
+            // bedrock:InvokeModel, throttling) is in opencode serve's own log, which the
+            // caller (Harness) surfaces separately; this message at least pins down
+            // which call stalled and for how long, instead of a bare stack trace.
+            Duration elapsed = Duration.between(start, java.time.Instant.now());
+            throw new RuntimeException("OpenCode request to " + request.uri() + " timed out after "
+                + elapsed.toSeconds() + "s (configured timeout: " + timeout
+                + ") - opencode serve accepted the connection but never returned a response in time; "
+                + "check .yami-audit/opencode-serve.log for the actual provider/model error", e);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {
