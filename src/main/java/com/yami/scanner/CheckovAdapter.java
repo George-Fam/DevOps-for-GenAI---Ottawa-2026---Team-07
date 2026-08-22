@@ -6,14 +6,11 @@ import com.yami.core.Finding;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 /**
  * Runs checkov as a subprocess and normalizes its JSON output into {@link Finding}
@@ -41,34 +38,62 @@ public class CheckovAdapter {
     }
 
     public List<Finding> scan(Path terraformDir, List<String> scanPaths, List<String> excludePaths) {
-        List<String> args = new ArrayList<>();
-        args.add("checkov");
-
         // -d/--directory and -f/--file are mutually exclusive in checkov, and --file
         // takes literal file paths, not glob patterns - passing both (as this used to)
-        // makes checkov log "could not process file" for each --file entry and silently
-        // fall back to scanning the whole -d tree, ignoring scanPaths entirely. Resolve
-        // the globs to actual files ourselves and drive checkov with -f only.
-        if (scanPaths.isEmpty()) {
-            args.add("-d");
-            args.add(terraformDir.toString());
-            for (String p : excludePaths) {
-                args.add("--skip-path");
-                // checkov compiles --skip-path values as Python regexes, but the
-                // policy file expresses them as globs - "**" is an invalid regex
-                // ("multiple repeat") and crashes any checkov runner that compiles
-                // exclusions (bicep, terraform_json, secrets, base_runner).
-                args.add(p.replace("**", ".*"));
-            }
-        } else {
-            List<Path> files = resolveScanFiles(terraformDir, scanPaths, excludePaths);
-            if (files.isEmpty()) {
+        // makes checkov log "could not process file" for every --file entry and silently
+        // fall back to scanning the whole -d tree, ignoring scanPaths entirely. --file
+        // mode is also unreliable across checkov versions on its own (checkov 3.2.50,
+        // the version this project's Dockerfile pins, reports resource_count: 0 for a
+        // standalone .tf file passed via -f - it can't establish module context outside
+        // a real directory scan). -d is the only path proven reliable (it's what every
+        // other scan in this codebase already uses), so when scanPaths cleanly resolves
+        // to real subdirectories, run one -d scan per subdirectory instead of touching
+        // --file at all. Anything that doesn't resolve (globs, bare filenames like
+        // "Dockerfile"/"pom.xml") falls back to a single full -d scan from terraformDir -
+        // exactly today's behavior for the default policy scope.
+        List<Path> scanDirs = resolveScanDirectories(terraformDir, scanPaths);
+        if (scanDirs.isEmpty()) {
+            return runCheckov(terraformDir, excludePaths);
+        }
+        List<Finding> findings = new ArrayList<>();
+        for (Path dir : scanDirs) {
+            findings.addAll(runCheckov(dir, excludePaths));
+        }
+        return findings;
+    }
+
+    /** A scanPath resolves to a directory scope only if, after stripping a trailing
+     * "/**", it's a literal path (no glob metacharacters) that exists as a directory
+     * under terraformDir. If any scanPath doesn't resolve this way, bail out entirely
+     * (empty list) rather than scanning a partial subset of the intended scope. */
+    private static List<Path> resolveScanDirectories(Path terraformDir, List<String> scanPaths) {
+        List<Path> dirs = new ArrayList<>();
+        for (String p : scanPaths) {
+            String stripped = p.endsWith("/**") ? p.substring(0, p.length() - 3) : p;
+            if (stripped.isEmpty() || stripped.chars().anyMatch(c -> c == '*' || c == '?' || c == '[')) {
                 return List.of();
             }
-            for (Path f : files) {
-                args.add("--file");
-                args.add(f.toString());
+            Path candidate = terraformDir.resolve(stripped).normalize();
+            if (!Files.isDirectory(candidate)) {
+                return List.of();
             }
+            dirs.add(candidate);
+        }
+        return dirs;
+    }
+
+    private List<Finding> runCheckov(Path directory, List<String> excludePaths) {
+        List<String> args = new ArrayList<>();
+        args.add("checkov");
+        args.add("-d");
+        args.add(directory.toString());
+        for (String p : excludePaths) {
+            args.add("--skip-path");
+            // checkov compiles --skip-path values as Python regexes, but the policy
+            // file expresses them as globs - "**" is an invalid regex ("multiple
+            // repeat") and crashes any checkov runner that compiles exclusions
+            // (bicep, terraform_json, secrets, base_runner).
+            args.add(p.replace("**", ".*"));
         }
         args.add("--output");
         args.add("json");
@@ -122,27 +147,6 @@ public class CheckovAdapter {
             }
         }
         return findings;
-    }
-
-    /** Expands scanPaths/excludePaths glob patterns (repo-root-relative) against the
-     * files actually under terraformDir, since checkov's --file takes literal paths. */
-    private static List<Path> resolveScanFiles(Path terraformDir, List<String> scanPaths, List<String> excludePaths) {
-        List<PathMatcher> includes = scanPaths.stream()
-            .map(p -> FileSystems.getDefault().<PathMatcher>getPathMatcher("glob:" + p))
-            .toList();
-        List<PathMatcher> excludes = excludePaths.stream()
-            .map(p -> FileSystems.getDefault().<PathMatcher>getPathMatcher("glob:" + p))
-            .toList();
-        try (Stream<Path> walk = Files.walk(terraformDir)) {
-            return walk
-                .filter(Files::isRegularFile)
-                .filter(p -> includes.stream().anyMatch(m -> m.matches(terraformDir.relativize(p))))
-                .filter(p -> excludes.stream().noneMatch(m -> m.matches(terraformDir.relativize(p))))
-                .sorted()
-                .toList();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     private static Iterable<JsonNode> resultsArray(JsonNode root) {
