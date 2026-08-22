@@ -40,6 +40,14 @@ RUN curl -fsSL https://github.com/cli/cli/releases/download/v2.98.0/gh_2.98.0_li
     && rm -rf /tmp/gh.tar.gz /tmp/gh_2.98.0_linux_amd64 \
     && gh --version
 
+# GitHub Actions mounts GITHUB_WORKSPACE from the runner host, owned by the
+# runner's user, while this container always runs as root (see note below) -
+# git's dubious-ownership check then refuses every git operation in that
+# directory (both GithubAdapter's own git calls and gh's internal ones).
+# --system (not --global) so it survives runtime HOME being passed through
+# from the host and overriding whatever --global would have written.
+RUN git config --system --add safe.directory /github/workspace
+
 RUN apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY target/yami.jar /yami.jar
