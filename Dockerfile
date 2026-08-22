@@ -33,6 +33,13 @@ RUN curl -fsSL https://github.com/anomalyco/opencode/releases/download/v1.18.21/
 RUN apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY target/yami.jar /yami.jar
+
+# Warm Maven cache baked in at build time (populated by `make package` from the
+# host's ~/.m2/repository) so Trivy resolves pom.xml dependencies offline and
+# never hits live Maven Central rate limits inside this container, which has no
+# access to the host runner's ~/.m2. See GitHub issue #8.
+COPY target/m2-repo /root/.m2/repository
+
 COPY policies /policies
 COPY .opencode /root/.config/opencode
 RUN ln -s /root/.config/opencode /.opencode
