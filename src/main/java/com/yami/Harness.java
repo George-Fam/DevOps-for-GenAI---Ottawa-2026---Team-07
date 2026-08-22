@@ -9,6 +9,7 @@ import com.yami.core.PatchReport;
 import com.yami.core.RiskContextPacket;
 import com.yami.core.VerificationResult;
 import com.yami.github.GithubAdapter;
+import com.yami.governance.GovernanceIntegrity;
 import com.yami.investigator.Investigator;
 import com.yami.opencode.OpenCodeClient;
 import com.yami.opencode.PermissionInjector;
@@ -84,6 +85,16 @@ public class Harness {
         }
 
         System.out.println("[Harness] Starting Yami pipeline");
+
+        // 0. Governance integrity check
+        GovernanceIntegrity.Result govResult = GovernanceIntegrity.verify(repoDir);
+        if (!govResult.passed()) {
+            System.err.println("[Harness] GOVERNANCE INTEGRITY FAILED: " + govResult.details());
+            KillSwitch.trigger("governance manifest mismatch: " + govResult.details());
+            githubAdapter.escalateToHumanReview("Yami governance integrity check failed — .opencode/ artefacts do not match the committed manifest. Human review required.");
+            return;
+        }
+        System.out.println("[Harness] Governance integrity verified");
 
         // 2. Scan
         List<Finding> findings = scan();
