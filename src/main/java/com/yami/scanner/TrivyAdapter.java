@@ -24,19 +24,7 @@ public class TrivyAdapter {
     }
 
     public List<Finding> scan(Path repoRoot, List<String> scanPaths, List<String> excludePaths) {
-        List<String> args = new ArrayList<>();
-        args.add("trivy");
-        args.add("fs");
-        args.add("--scanners");
-        args.add("vuln,misconfig");
-        for (String p : excludePaths) {
-            args.add("--skip-dirs");
-            args.add(p);
-        }
-        args.add("--format");
-        args.add("json");
-        args.add("--quiet");
-        args.add(repoRoot.toString());
+        List<String> args = buildArgs(repoRoot, excludePaths);
 
         // Fixed argv list built from args.add(...) calls, never a shell string.
         // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
@@ -84,6 +72,43 @@ public class TrivyAdapter {
             }
         }
         return findings;
+    }
+
+    /**
+     * Builds the fixed argv list for the trivy subprocess.
+     *
+     * <p>Uses {@code --offline-scan} so Trivy resolves Java dependencies from the
+     * local Maven repository only, never via live Maven Central requests. The action
+     * container has no access to the host runner's {@code ~/.m2}, and live resolution
+     * gets rate-limited (HTTP 429), which used to crash the scan (issue #8).
+     *
+     * <p><strong>Assumption:</strong> {@code ~/.m2/repository} is baked into the image
+     * at build time ({@code make package} exports it to {@code target/m2-repo}, the
+     * Dockerfile COPYs it to {@code /root/.m2/repository}). This holds for Yami
+     * self-scanning because {@code mvn package} runs before the Docker build, so the
+     * cache always contains the current PR's dependencies.
+     *
+     * <p><strong>Trade-off:</strong> a dependency missing from the baked cache is
+     * silently skipped rather than fetched. Third-party reuse of this action on a
+     * repository without a warm cache may under-report vulnerabilities; in that case
+     * drop {@code --offline-scan} or provide a warm {@code ~/.m2}.
+     */
+    List<String> buildArgs(Path repoRoot, List<String> excludePaths) {
+        List<String> args = new ArrayList<>();
+        args.add("trivy");
+        args.add("fs");
+        args.add("--scanners");
+        args.add("vuln,misconfig");
+        args.add("--offline-scan");
+        for (String p : excludePaths) {
+            args.add("--skip-dirs");
+            args.add(p);
+        }
+        args.add("--format");
+        args.add("json");
+        args.add("--quiet");
+        args.add(repoRoot.toString());
+        return args;
     }
 
     private Finding toVulnFinding(JsonNode vuln, String target) {

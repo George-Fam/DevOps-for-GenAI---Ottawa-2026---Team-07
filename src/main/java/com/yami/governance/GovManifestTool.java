@@ -5,15 +5,18 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Outil de gouvernance : génère et vérifie le manifest SHA-256 des artefacts
@@ -30,6 +33,12 @@ import java.util.stream.Stream;
  * <p><b>Chaînage</b> : le champ {@code previousManifestHash} contient le
  * SHA-256 du manifest précédent (fichier {@code .opencode/MANIFEST.json}
  * tel que commité). Le premier manifest a {@code null}.
+ *
+ * <p><b>Respect du gitignore</b> : les patterns du fichier
+ * {@code .opencode/.gitignore} sont chargés et appliqués pendant le walk.
+ * Les répertoires ignorés sont élagués (pas de descente), ce qui exclut
+ * automatiquement tout leur contenu du manifest. Les fichiers sous des
+ * chemins ignorés ne sont pas pris en compte par {@code verify()}.
  */
 public class GovManifestTool {
 
@@ -56,15 +65,29 @@ public class GovManifestTool {
             throw new GovManifestException(".opencode/ directory not found at " + opencodeDir);
         }
 
+        Set<String> ignorePatterns = loadIgnorePatterns(opencodeDir);
         Map<String, String> fileHashes = new LinkedHashMap<>();
-        try (Stream<Path> paths = Files.walk(opencodeDir)) {
-            paths.filter(this::isGovernanceFile)
-                .sorted()
-                .forEach(file -> {
-                    String relative = repoDir.relativize(file).toString();
-                    String hash = sha256(file);
-                    fileHashes.put(relative, hash);
-                });
+
+        try {
+            Files.walkFileTree(opencodeDir, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (isIgnored(dir, opencodeDir, ignorePatterns)) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (isGovernanceFile(file) && !isIgnored(file, opencodeDir, ignorePatterns)) {
+                        String relative = repoDir.relativize(file).toString();
+                        String hash = sha256(file);
+                        fileHashes.put(relative, hash);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -98,6 +121,7 @@ public class GovManifestTool {
         }
 
         GovManifest committed = readManifest(manifestPath);
+        Set<String> ignorePatterns = loadIgnorePatterns(repoDir.resolve(OPENCODE_DIR));
 
         // 1. Vérifier les fichiers listés
         for (Map.Entry<String, String> entry : committed.files().entrySet()) {
@@ -112,17 +136,29 @@ public class GovManifestTool {
             }
         }
 
-        // 2. Vérifier qu'aucun fichier n'a été ajouté
+        // 2. Vérifier qu'aucun fichier non-ignoré n'a été ajouté
         Path opencodeDir = repoDir.resolve(OPENCODE_DIR);
-        try (Stream<Path> paths = Files.walk(opencodeDir)) {
-            paths.filter(this::isGovernanceFile)
-                .sorted()
-                .forEach(file -> {
-                    String relative = repoDir.relativize(file).toString();
-                    if (!committed.files().containsKey(relative)) {
-                        throw new GovManifestException("New file not listed in manifest: " + relative);
+        try {
+            Files.walkFileTree(opencodeDir, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (isIgnored(dir, opencodeDir, ignorePatterns)) {
+                        return FileVisitResult.SKIP_SUBTREE;
                     }
-                });
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (isGovernanceFile(file) && !isIgnored(file, opencodeDir, ignorePatterns)) {
+                        String relative = repoDir.relativize(file).toString();
+                        if (!committed.files().containsKey(relative)) {
+                            throw new GovManifestException("New file not listed in manifest: " + relative);
+                        }
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -142,6 +178,62 @@ public class GovManifestTool {
         return Files.isRegularFile(file)
             && (name.endsWith(".md") || name.endsWith(".json"))
             && !name.equals(MANIFEST_FILE);
+    }
+
+    /**
+     * Détermine si un fichier ou répertoire est ignoré selon les patterns
+     * du {@code .gitignore} de {@code .opencode/}.
+     *
+     * <p>Un chemin est ignoré si l'un de ses segments (nom de répertoire ou
+     * nom de fichier) correspond à un pattern. Les répertoires ignorés sont
+     * élagués en amont via {@code SKIP_SUBTREE} ; cette méthode sert aussi
+     * pour les fichiers individuels.
+     */
+    private boolean isIgnored(Path file, Path opencodeDir, Set<String> patterns) {
+        if (patterns.isEmpty()) {
+            return false;
+        }
+        Path relative = opencodeDir.relativize(file);
+        String relativeStr = relative.toString();
+        if (relativeStr.isEmpty()) {
+            return false; // opencodeDir itself
+        }
+        for (int i = 0; i < relative.getNameCount(); i++) {
+            String segment = relative.getName(i).toString();
+            for (String pattern : patterns) {
+                if (matchesPattern(segment, pattern)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private Set<String> loadIgnorePatterns(Path opencodeDir) {
+        Path gitignore = opencodeDir.resolve(".gitignore");
+        if (!Files.exists(gitignore)) {
+            return Set.of();
+        }
+        try {
+            return Files.readAllLines(gitignore).stream()
+                .map(String::trim)
+                .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                .collect(Collectors.toSet());
+        } catch (IOException e) {
+            return Set.of();
+        }
+    }
+
+    private boolean matchesPattern(String name, String pattern) {
+        if (pattern.endsWith("/")) {
+            return name.equals(pattern.substring(0, pattern.length() - 1));
+        }
+        if (pattern.contains("*")) {
+            String regex = pattern.replace(".", "\\.")
+                                  .replace("*", ".*");
+            return name.matches(regex);
+        }
+        return name.equals(pattern);
     }
 
     private static String sha256(Path file) {

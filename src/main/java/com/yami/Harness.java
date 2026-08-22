@@ -7,6 +7,7 @@ import com.yami.core.Decision;
 import com.yami.core.Finding;
 import com.yami.core.PatchReport;
 import com.yami.core.RiskContextPacket;
+import com.yami.core.RunResult;
 import com.yami.core.VerificationResult;
 import com.yami.github.GithubAdapter;
 import com.yami.governance.GovernanceIntegrity;
@@ -86,6 +87,7 @@ public class Harness {
     private final Path auditDir;
     private final List<Path> sessionExports = new ArrayList<>();
     private final List<VerificationResult> verifications = new ArrayList<>();
+    private final List<String> prUrls = new ArrayList<>();
 
     /**
      * @param replayMode false = appels OpenCode réels, enregistrés dans replayFile
@@ -102,7 +104,7 @@ public class Harness {
         this.policyFile = policyFile;
         this.githubToken = githubToken;
         this.replayMode = replayMode;
-        this.openCodeServer = new OpenCodeServer(OPENCODE_HOST, OPENCODE_PORT);
+        this.openCodeServer = new OpenCodeServer(OPENCODE_HOST, OPENCODE_PORT, repoDir);
         ReplayHttpShim shim = new ReplayHttpShim(replayFile, replayMode);
         System.out.println("[Harness] OpenCode HTTP shim: " + (replayMode ? "REPLAY" : "RECORD") + " (" + replayFile + ")");
         this.openCodeClient = new OpenCodeClient("http://" + OPENCODE_HOST + ":" + OPENCODE_PORT, Duration.ofSeconds(120), shim);
@@ -128,16 +130,16 @@ public class Harness {
     }
 
     /**
-     * @return true iff the pipeline ran to completion with every finding
-     *         successfully judged. Callers must fail the process (non-zero
-     *         exit) on false — this is a security gate, so a systemic
-     *         failure (bad credentials, killed run, governance mismatch)
-     *         must never look like a passing check.
+     * @return the run's result, including {@code success = false} whenever
+     *         the pipeline must fail the gate closed. Callers must fail the
+     *         process (non-zero exit) on {@code !success} — this is a
+     *         security gate, so a systemic failure (bad credentials, killed
+     *         run, governance mismatch) must never look like a passing check.
      */
-    public boolean run() {
+    public RunResult run() {
         if (KillSwitch.isDisabled()) {
             System.err.println("[Harness] YAMI_DISABLED=true — aborting run");
-            return false;
+            return new RunResult(null, 0, List.of(), false);
         }
 
         System.out.println("[Harness] Starting Yami pipeline");
@@ -148,7 +150,7 @@ public class Harness {
             System.err.println("[Harness] GOVERNANCE INTEGRITY FAILED: " + govResult.details());
             KillSwitch.trigger("governance manifest mismatch: " + govResult.details());
             githubAdapter.escalateToHumanReview("Yami governance integrity check failed — .opencode/ artefacts do not match the committed manifest. Human review required.");
-            return false;
+            return new RunResult(null, 0, List.of(), false);
         }
         System.out.println("[Harness] Governance integrity verified");
 
@@ -166,9 +168,12 @@ public class Harness {
             System.out.println("[Harness] opencode serve is ready");
         }
 
+        List<Finding> findings = List.of();
+        Path auditJson = null;
+
         try {
             // 2. Scan
-            List<Finding> findings = scan();
+            findings = scan();
             System.out.println("[Harness] Found " + findings.size() + " findings");
 
             // 3. Build context packet
@@ -204,12 +209,12 @@ public class Harness {
 
             // 10. Assemble audit.json
             String govManifestHash = hashFile(repoDir.resolve(".opencode/MANIFEST.json"));
-            Path auditJson = sessionExporter.assembleAuditJson(sessionExports, govManifestHash, packet.packetHash(), verifications);
+            auditJson = sessionExporter.assembleAuditJson(sessionExports, govManifestHash, packet.packetHash(), verifications);
             System.out.println("[Harness] Pipeline complete — audit trail: " + auditStore + " ; audit.json: " + auditJson);
             if (failureCount > 0) {
                 System.err.println("[Harness] " + failureCount + "/" + findings.size() + " finding(s) failed processing — failing the gate closed");
             }
-            return failureCount == 0;
+            return new RunResult(auditJson, findings.size(), List.copyOf(prUrls), failureCount == 0);
         } finally {
             if (!replayMode) {
                 openCodeServer.stop();
@@ -344,6 +349,7 @@ public class Harness {
 
                 if (publisherInvocation.prUrl() != null) {
                     System.out.println("[Harness] Opened PR: " + publisherInvocation.prUrl());
+                    prUrls.add(publisherInvocation.prUrl());
                 } else {
                     System.err.println("[Harness] Publisher did not report a PR URL — output: " + publisherInvocation.rawOutput());
                     githubAdapter.escalateToHumanReview("Publisher agent completed for " + finding.ruleId() + " but reported no PR URL. Check the publisher session export for details.");

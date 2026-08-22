@@ -2,6 +2,7 @@
 description: "Yami Publisher — crée une branche jetable, ouvre la PR, poste des commentaires. Jamais merge, jamais push sur main."
 mode: subagent
 temperature: 0.0
+model: amazon-bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0
 permissions:
   bash:
     "git *": allow

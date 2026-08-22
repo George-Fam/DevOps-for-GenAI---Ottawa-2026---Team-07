@@ -98,7 +98,10 @@ jobs:
 ```
 Step 0:  KillSwitch check. YAMI_DISABLED=true? → abort
 Step 0b: Governance integrity. Verify MANIFEST.json SHA-256
-Step 1:  Scan. Run checkov + CicdRules on scope.scan_paths
+Step 1:  Scan. Run checkov + CicdRules + trivy on scope.scan_paths
+         (trivy runs with --offline-scan: Java deps resolve from the Maven
+         cache baked into the image at build time - no live Maven Central,
+         no 429 rate limits; see GitHub issue #8)
 Step 2:  Build RiskContextPacket. findings + changed files + git diff
 Step 3:  For each finding:
     3a: Route to OWASP skill(s)
@@ -138,6 +141,14 @@ Step 4:  Assemble audit.json. Hashes + sessions + results
 | **Invalid JSON from Judge** | Log: "JSON validation failed" | Retry 2x, then HUMAN_REVIEW | Review prompt |
 | **Surgeon edits wrong file** | Deviation diff detects it | Escalate to human | Review scope |
 | **Replay mode active** | Log: "fallbackMode: true" | Pipeline runs with recorded responses | Verify replay file |
+| **Scanner failure (trivy/checkov)** | Log: "scan failed, continuing without it" | Degrades to empty result, other scanners continue | Check scanner logs; findings from that scanner are missing for this run |
+
+> **Trivy offline-scan note (issue #8):** the Docker image bakes a warm Maven cache
+> (`target/m2-repo` → `/root/.m2/repository`, exported by `make package`) and trivy
+> runs with `--offline-scan`. Because `mvn package` precedes the Docker build, the
+> cache always covers the scanned PR's dependencies. Reusing this action on a
+> repository without a warm cache may silently miss dependencies - drop
+> `--offline-scan` in that case.
 
 ### 5.2 Escalation Path
 
