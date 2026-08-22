@@ -1,18 +1,18 @@
 {
   "version" : "1",
-  "generatedAt" : "2026-08-22T16:23:37.419999649Z",
-  "gitCommit" : "006d4b1544c7032a2bb890c701b8aab49f8654cd",
-  "previousManifestHash" : "9f295e2ebfc0bb8823850bd4e2a41b77c0afc583408b4aa5db7ddd3806f4a7bb",
+  "generatedAt" : "2026-08-22T17:51:47.504098991Z",
+  "gitCommit" : "b43ccf38cf43193aadb9c4b3408c883d0633a9ec",
+  "previousManifestHash" : "e7c7882d870c1d8ce6a47ebd899cffe54de637a26593eebf0cc2212f286e4a70",
   "files" : {
-    ".opencode/skills/owasp-iac-security/SKILL.md" : "e83c1957e5df07d784ba03084536b4161699a4103fe8f5182884dfb04a8ce716",
-    ".opencode/skills/owasp-supplychain/SKILL.md" : "cc0fafe3c162dd48801aa994756dc2618c965d984af7646bc173b7fdfd7dae72",
+    ".opencode/opencode.json" : "934d1c7769d8ac3b895e5690260d5b616bb065f59810be8cb44815fbdf1d7bc1",
     ".opencode/skills/owasp-cicd-top10/SKILL.md" : "4536f1da158670c1e438a82377f1a2d6cb2190d7fbe84f774d6f792d18257b2e",
     ".opencode/skills/owasp-llm-top10/SKILL.md" : "1f5b5e60d945c18edbf56fee5bfa8ddbd9ffd444a63b3a70d115e1e8b969ad6b",
-    ".opencode/agents/spike-test.md" : "02dcffb4375ad1af8be2c47254141384df10a1792aa1bac38de87fec2017e9fe",
-    ".opencode/agents/judge.md" : "23538b141b42651e623cba923282f375d0cc59e46db004329d33879f14aa6c62",
-    ".opencode/agents/publisher.md" : "c8f600e950ed56cc33f30b2893b1f9edb0ee34a2a408111889fff86380fa9f26",
-    ".opencode/agents/surgeon.md" : "91434ceb66aa23f2f52942ce8eb1b01baa56569bc9f0efe99d9ffee046d82c7d",
-    ".opencode/agents/auditor.md" : "64ad2db8645f4206d07c3c7eec73744674ea3c7fc32c0eb701e388d9a7502d95",
-    ".opencode/opencode.json" : "934d1c7769d8ac3b895e5690260d5b616bb065f59810be8cb44815fbdf1d7bc1"
+    ".opencode/skills/owasp-iac-security/SKILL.md" : "e83c1957e5df07d784ba03084536b4161699a4103fe8f5182884dfb04a8ce716",
+    ".opencode/skills/owasp-supplychain/SKILL.md" : "cc0fafe3c162dd48801aa994756dc2618c965d984af7646bc173b7fdfd7dae72",
+    ".opencode/agents/surgeon.md" : "a5149492aaa7dc6d6cc43eb721a429ac94300edd2625901268e92f578c75140a",
+    ".opencode/agents/auditor.md" : "71bf119d3082f82af0dc25d0b48b2091abcd579a4150e1ac6b568f87b356edff",
+    ".opencode/agents/judge.md" : "a9b985f8c8951a4a7f85463e3260d224ac8b51f227f75d226dc53ac83ebc6823",
+    ".opencode/agents/publisher.md" : "6579c239dbca6768714fa02c5de7ff0466c3c458111d04fb0783be62cd4c7070",
+    ".opencode/agents/spike-test.md" : "02dcffb4375ad1af8be2c47254141384df10a1792aa1bac38de87fec2017e9fe"
   }
 }
