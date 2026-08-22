@@ -15,7 +15,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Shim HTTP à la frontière Java↔OpenCode serve.
@@ -40,7 +40,7 @@ public class ReplayHttpShim {
     private final boolean replayMode;
     private final ObjectMapper mapper = new ObjectMapper();
     private final List<RecordedExchange> exchanges = new ArrayList<>();
-    private final AtomicBoolean loaded = new AtomicBoolean(false);
+    private final AtomicInteger replayIndex = new AtomicInteger(0);
 
     public ReplayHttpShim(Path replayFile, boolean replayMode) {
         this.replayFile = replayFile;
@@ -87,17 +87,38 @@ public class ReplayHttpShim {
         }
     }
 
+    /**
+     * Rejoue les échanges dans l'ordre exact où ils ont été enregistrés. Le matching
+     * n'est pas fait par (method, uri) exact : OpenCode génère un sessionId différent
+     * à chaque {@code createSession}, donc les URIs {@code /session/{id}/message}
+     * divergent légitimement d'un run à l'autre. On compare la méthode + l'URI
+     * normalisée (segment de sessionId neutralisé) contre l'échange suivant en
+     * séquence — le pipeline Java appelle OpenCode dans un ordre déterministe, donc
+     * "le Nème appel correspond au Nème enregistrement" est une garantie valide et
+     * détecte quand même une vraie dérive de séquence (mauvais endpoint, appel
+     * manquant ou en trop).
+     */
     private SimpleResponse replay(HttpRequest request) {
-        String uri = request.uri().toString();
         String method = request.method();
+        String uri = request.uri().toString();
 
-        for (RecordedExchange ex : exchanges) {
-            if (ex.method.equals(method) && ex.uri.equals(uri)) {
-                return new SimpleResponse(ex.statusCode, ex.responseBody);
-            }
+        int index = replayIndex.getAndIncrement();
+        if (index >= exchanges.size()) {
+            throw new IllegalStateException("Replay file exhausted (" + exchanges.size()
+                + " recorded exchanges) — no entry left for call #" + (index + 1) + ": " + method + " " + uri);
         }
 
-        throw new IllegalStateException("No replay entry for " + method + " " + uri);
+        RecordedExchange ex = exchanges.get(index);
+        if (!ex.method.equals(method) || !normalizeUri(ex.uri).equals(normalizeUri(uri))) {
+            throw new IllegalStateException("Replay sequence mismatch at call #" + (index + 1)
+                + ": recorded " + ex.method + " " + ex.uri + " but pipeline requested " + method + " " + uri);
+        }
+
+        return new SimpleResponse(ex.statusCode, ex.responseBody);
+    }
+
+    private static String normalizeUri(String uri) {
+        return uri.replaceAll("/session/[^/]+", "/session/{id}");
     }
 
     private void loadExchanges() {
@@ -116,7 +137,9 @@ public class ReplayHttpShim {
                     node.get("responseBody").asText()
                 ));
             }
-            loaded.set(true);
+            if (exchanges.isEmpty()) {
+                throw new IllegalStateException("Replay file is empty: " + replayFile);
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
