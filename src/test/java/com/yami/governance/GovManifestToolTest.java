@@ -129,4 +129,69 @@ class GovManifestToolTest {
         assertTrue(!result.passed());
         assertTrue(result.details().contains("Hash mismatch"));
     }
+
+    @Test
+    void generateExcludesGitignoredFiles(@TempDir Path tempDir) throws Exception {
+        Path opencodeDir = tempDir.resolve(".opencode");
+        Files.createDirectories(opencodeDir.resolve("agents"));
+        Files.createDirectories(opencodeDir.resolve("node_modules").resolve("foo"));
+
+        Files.writeString(opencodeDir.resolve("agents").resolve("judge.md"), "---\nmode: subagent\n---\n");
+        Files.writeString(opencodeDir.resolve("node_modules").resolve("foo").resolve("package.json"), "{}");
+        Files.writeString(opencodeDir.resolve("node_modules").resolve("foo").resolve("README.md"), "# ignored");
+        Files.writeString(opencodeDir.resolve(".gitignore"), "node_modules\npackage.json\n");
+
+        GovManifestTool tool = new GovManifestTool();
+        GovManifest manifest = tool.generate(tempDir);
+
+        assertEquals(1, manifest.files().size());
+        assertTrue(manifest.files().containsKey(".opencode/agents/judge.md"));
+    }
+
+    @Test
+    void verifyPassesWhenIgnoredFileAdded(@TempDir Path tempDir) throws Exception {
+        Path opencodeDir = tempDir.resolve(".opencode");
+        Files.createDirectories(opencodeDir.resolve("agents"));
+        Files.writeString(opencodeDir.resolve("agents").resolve("judge.md"), "---\nmode: subagent\n---\n");
+        Files.writeString(opencodeDir.resolve(".gitignore"), "node_modules\n");
+
+        GovManifestTool tool = new GovManifestTool();
+        tool.generate(tempDir);
+
+        // Ajouter un fichier dans un répertoire ignoré
+        Files.createDirectories(opencodeDir.resolve("node_modules"));
+        Files.writeString(opencodeDir.resolve("node_modules").resolve("junk.md"), "bad");
+
+        // Ne doit PAS lever d'exception
+        tool.verify(tempDir);
+    }
+
+    @Test
+    void worksWithoutGitignoreFile(@TempDir Path tempDir) throws Exception {
+        Path opencodeDir = tempDir.resolve(".opencode");
+        Files.createDirectories(opencodeDir.resolve("agents"));
+        Files.writeString(opencodeDir.resolve("agents").resolve("judge.md"), "---\nmode: subagent\n---\n");
+
+        GovManifestTool tool = new GovManifestTool();
+        GovManifest manifest = tool.generate(tempDir);
+
+        assertEquals(1, manifest.files().size());
+        tool.verify(tempDir);
+    }
+
+    @Test
+    void verifyFailsWhenNonIgnoredFileAdded(@TempDir Path tempDir) throws Exception {
+        Path opencodeDir = tempDir.resolve(".opencode");
+        Files.createDirectories(opencodeDir.resolve("agents"));
+        Files.writeString(opencodeDir.resolve("agents").resolve("judge.md"), "---\nmode: subagent\n---\n");
+        Files.writeString(opencodeDir.resolve(".gitignore"), "node_modules\n");
+
+        GovManifestTool tool = new GovManifestTool();
+        tool.generate(tempDir);
+
+        Files.writeString(opencodeDir.resolve("agents").resolve("surgeon.md"), "---\nmode: subagent\n---\n");
+
+        GovManifestException ex = assertThrows(GovManifestException.class, () -> tool.verify(tempDir));
+        assertTrue(ex.getMessage().contains("New file not listed"));
+    }
 }
